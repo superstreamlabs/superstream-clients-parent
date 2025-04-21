@@ -23,7 +23,7 @@ import java.util.concurrent.ExecutionException;
  *    - example-topic - for test messages
  *
  * Environment variables:
- * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: localhost:9092)
+ * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: b-23-public.superstreamstgmsk.0y88si.c2.kafka.eu-central-1.amazonaws.com:9198,b-24-public.superstreamstgmsk.0y88si.c2.kafka.eu-central-1.amazonaws.com:9198,b-2-public.superstreamstgmsk.0y88si.c2.kafka.eu-central-1.amazonaws.com:9198)
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
  */
 public class MskKafkaExample {

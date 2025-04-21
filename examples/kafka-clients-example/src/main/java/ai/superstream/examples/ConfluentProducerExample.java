@@ -23,7 +23,7 @@ import java.util.concurrent.ExecutionException;
  *    - example-topic - for test messages
  *
  * Environment variables:
- * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: localhost:9092)
+ * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: pkc-7xoy1.eu-central-1.aws.confluent.cloud:9092)
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
  */
 public class ConfluentProducerExample {
@@ -48,8 +48,8 @@ public class ConfluentProducerExample {
         props.put("sasl.mechanism", "PLAIN");
         props.put("sasl.jaas.config",
                 "org.apache.kafka.common.security.plain.PlainLoginModule required " +
-                        "username='PP4WXPJHT5I63MUF' " +
-                        "password='uPhmnEJ66nMxCVEF6XE4gqsc1Un3pZ3KaE4HYLh4NCDUhACvrpbTKkVYy6bA1Xui';");
+                        "username='' " +
+                        "password='';");
 
         // Set some basic configuration
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "gzip");

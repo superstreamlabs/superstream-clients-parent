@@ -25,7 +25,7 @@ import java.util.concurrent.ExecutionException;
  *    - example-topic - for test messages
  *
  * Environment variables:
- * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: localhost:9092)
+ * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: superstream-test-superstream-3591.k.aivencloud.com:18837)
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
  */
 public class AivenKafkaExample {
@@ -44,6 +44,7 @@ public class AivenKafkaExample {
         props.put("client.id", "superstream-example-producer");
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+
         props.put("security.protocol", "SSL");
         props.put("ssl.truststore.type", "PEM");
         props.put("ssl.keystore.type", "PEM");
