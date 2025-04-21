@@ -2,7 +2,6 @@
   <configuration default="false" name="debug kafka clients example" type="Application" factoryName="Application">
     <envs>
       <env name="SUPERSTREAM_TOPICS_LIST" value="example-topic" />
-      <env name="SUPERSTREAM_LINGER_MS" value="1000" />
     </envs>
     <option name="MAIN_CLASS_NAME" value="ai.superstream.examples.KafkaProducerExample" />
     <module name="kafka-clients-example" />

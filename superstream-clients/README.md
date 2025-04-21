@@ -26,10 +26,15 @@ Works with any Java library that depends on `kafka-clients`, including:
 
 ## Linger Time Configuration
 
-The `linger.ms` parameter follows this priority:
+The linger.ms parameter follows these rules:
 
-1. `SUPERSTREAM_LINGER_MS` environment variable (if set)
-2. Superstream's optimized value
+1. If SUPERSTREAM_LATENCY_SENSITIVE is set to true:
+   - Linger value will never be modified, regardless of other settings
+
+
+2. If SUPERSTREAM_LATENCY_SENSITIVE is set to false or not set:
+   - If no explicit linger exists in original configuration: Use Superstream's optimized value
+   - If explicit linger exists: Use the maximum of original value and Superstream's optimized value
 
 ## Installation
 
@@ -109,13 +114,13 @@ COPY --from=build /tmp/superstream-clients-1.0.0.jar /app/lib/superstream-client
 
 ### Optional Environment Variables
 
-- `SUPERSTREAM_LINGER_MS`: Set a specific linger.ms value (in milliseconds)
+- `SUPERSTREAM_LATENCY_SENSITIVE`: Set to "true" to prevent any modification to linger.ms values
 - `SUPERSTREAM_DISABLED`: Set to "true" to disable optimization
 
 Example:
 ```bash
 export SUPERSTREAM_TOPICS_LIST=orders,payments,user-events
-export SUPERSTREAM_EXPLICIT_LINGER_MS=2000
+export SUPERSTREAM_LATENCY_SENSITIVE=true
 ```
 
 ## Prerequisites

@@ -12,8 +12,7 @@ import java.util.stream.Collectors;
  */
 public class ConfigurationOptimizer {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ConfigurationOptimizer.class);
-    private static final String EXPLICIT_LINGER_ENV_VAR = "SUPERSTREAM_LINGER_MS";
-    private static final int DEFAULT_LINGER_MS = 5000; // 5 seconds default
+    private static final String LATENCY_SENSITIVE_ENV_VAR = "SUPERSTREAM_LATENCY_SENSITIVE";
 
     /**
      * Get the optimal configuration for a set of topics.
@@ -23,6 +22,12 @@ public class ConfigurationOptimizer {
      * @return The optimal configuration, or an empty map if no optimization is possible
      */
     public Map<String, Object> getOptimalConfiguration(MetadataMessage metadataMessage, List<String> applicationTopics) {
+        // Check if the application is latency-sensitive
+        boolean isLatencySensitive = isLatencySensitive();
+        if (isLatencySensitive) {
+            logger.info("Application is marked as latency-sensitive, linger.ms will not be modified");
+        }
+
         // Get all matching topic configurations
         List<TopicConfiguration> matchingConfigurations = metadataMessage.getTopicsConfiguration().stream()
                 .filter(config -> applicationTopics.contains(config.getTopicName()))
@@ -42,11 +47,14 @@ public class ConfigurationOptimizer {
             optimalConfiguration.put("compression.type", "zstd");
             optimalConfiguration.put("batch.size", 16384);  // 16KB
 
-            // Use default linger value since no metadata configuration was found
-            handleLingerConfiguration(optimalConfiguration, null);
+            // Only add linger if not latency-sensitive
+            if (!isLatencySensitive) {
+                optimalConfiguration.put("linger.ms", 5000);  // 5 seconds default
+                logger.info("Default optimizations will be applied: compression.type=zstd, batch.size=16384, linger.ms=5000");
+            } else {
+                logger.info("Default optimizations will be applied: compression.type=zstd, batch.size=16384 (linger.ms unchanged)");
+            }
 
-            logger.info("Default optimizations will be applied: compression.type=zstd, batch.size=16384, linger.ms={}",
-                    optimalConfiguration.get("linger.ms"));
             return optimalConfiguration;
         }
 
@@ -57,22 +65,11 @@ public class ConfigurationOptimizer {
 
         optimalConfiguration = new HashMap<>(mostImpactfulTopic.getOptimizedConfiguration());
 
-        // Handle linger configuration using metadata value as reference
-        Integer metadataLinger = null;
-        if (mostImpactfulTopic.getOptimizedConfiguration().containsKey("linger.ms")) {
-            Object lingerValue = mostImpactfulTopic.getOptimizedConfiguration().get("linger.ms");
-            if (lingerValue instanceof Number) {
-                metadataLinger = ((Number) lingerValue).intValue();
-            } else if (lingerValue instanceof String) {
-                try {
-                    metadataLinger = Integer.parseInt(lingerValue.toString());
-                } catch (NumberFormatException e) {
-                    logger.warn("Invalid linger.ms value in metadata: {}", lingerValue);
-                }
-            }
+        // If latency sensitive, remove linger.ms setting
+        if (isLatencySensitive && optimalConfiguration.containsKey("linger.ms")) {
+            optimalConfiguration.remove("linger.ms");
+            logger.info("Ignore linger.ms from optimizations due to latency-sensitive configuration");
         }
-
-        handleLingerConfiguration(optimalConfiguration, metadataLinger);
 
         return optimalConfiguration;
     }
@@ -97,6 +94,12 @@ public class ConfigurationOptimizer {
 
             // Special handling for linger.ms
             if ("linger.ms".equals(key)) {
+                // Skip linger.ms if the application is latency-sensitive
+                if (isLatencySensitive()) {
+                    logger.info("Skipping linger.ms optimization due to latency-sensitive configuration");
+                    continue;
+                }
+
                 int optimalLinger = value instanceof Number ?
                         ((Number) value).intValue() : Integer.parseInt(value.toString());
 
@@ -137,7 +140,11 @@ public class ConfigurationOptimizer {
             properties.put(key, value);
             modifiedKeys.add(key);
 
-            logger.info("Overriding configuration: {}={} (was: {})", key, value, originalValue);
+            if (originalValue == null) {
+                logger.info("Setting configuration: {}={} (was not previously set)", key, value);
+            } else {
+                logger.info("Overriding configuration: {}={} (was: {})", key, value, originalValue);
+            }
         }
 
         return modifiedKeys;
@@ -159,37 +166,15 @@ public class ConfigurationOptimizer {
     }
 
     /**
-     * Process linger.ms configuration based on environment variable and metadata.
+     * Determine if the application is latency-sensitive based on environment variable.
      *
-     * @param configuration The configuration map to modify
-     * @param metadataLinger The linger value from metadata, or null if not present
+     * @return true if the application is latency-sensitive, false otherwise
      */
-    private void handleLingerConfiguration(Map<String, Object> configuration, Integer metadataLinger) {
-        // Check for explicit linger from environment variable
-        String explicitLingerStr = System.getenv(EXPLICIT_LINGER_ENV_VAR);
-        Integer explicitLinger = null;
-
-        if (explicitLingerStr != null && !explicitLingerStr.trim().isEmpty()) {
-            try {
-                explicitLinger = Integer.parseInt(explicitLingerStr.trim());
-                logger.info("Using explicit linger.ms value from environment variable: {}", explicitLinger);
-            } catch (NumberFormatException e) {
-                logger.warn("Invalid {} value: {}. Will use default or metadata value.",
-                        EXPLICIT_LINGER_ENV_VAR, explicitLingerStr);
-            }
+    private boolean isLatencySensitive() {
+        String latencySensitiveStr = System.getenv(LATENCY_SENSITIVE_ENV_VAR);
+        if (latencySensitiveStr != null && !latencySensitiveStr.trim().isEmpty()) {
+            return Boolean.parseBoolean(latencySensitiveStr.trim());
         }
-
-        // Determine which linger value to use
-        if (explicitLinger != null) {
-            // Use explicit value from env var
-            configuration.put("linger.ms", explicitLinger);
-        } else if (metadataLinger != null) {
-            // Use value from metadata
-            configuration.put("linger.ms", metadataLinger);
-        } else {
-            // Use default value
-            configuration.put("linger.ms", DEFAULT_LINGER_MS);
-            logger.info("No linger.ms specified in metadata or environment variable. Using default: {}", DEFAULT_LINGER_MS);
-        }
+        return false; // Default to not latency-sensitive
     }
 }
