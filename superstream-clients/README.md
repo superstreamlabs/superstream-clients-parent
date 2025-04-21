@@ -1,3 +1,10 @@
+<div align="center">
+
+<img src="https://github.com/user-attachments/assets/35899c78-24eb-4507-97ed-e87e84c49fea#gh-dark-mode-only" width="300">
+<img src="https://github.com/user-attachments/assets/8a7bca49-c362-4a8c-945e-a331fb26d8eb#gh-light-mode-only" width="300">
+
+</div>
+
 # Superstream Clients
 
 A Java library for automatically optimizing Kafka producer configurations based on topic-specific recommendations.
