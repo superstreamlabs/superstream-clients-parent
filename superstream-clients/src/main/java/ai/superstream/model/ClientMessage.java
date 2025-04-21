@@ -14,6 +14,8 @@ public class ClientMessage {
     private String clientId;
     private String ipAddress;
     private String clientVersion;
+    private String language;
+    private String clientType;
     private Map<String, Object> originalConfiguration;
     private Map<String, Object> optimizedConfiguration;
 
@@ -21,13 +23,15 @@ public class ClientMessage {
         // Default constructor for Jackson
     }
 
-    public ClientMessage(int superstreamClusterId, boolean active, String clientId, String ipAddress, String clientVersion,
+    public ClientMessage(int superstreamClusterId, boolean active, String clientId, String ipAddress, String clientVersion, String language, String clientType,
                          Map<String, Object> originalConfiguration, Map<String, Object> optimizedConfiguration) {
         this.superstreamClusterId = superstreamClusterId;
         this.active = active;
         this.clientId = clientId;
         this.ipAddress = ipAddress;
         this.clientVersion = clientVersion;
+        this.language = language;
+        this.clientType = clientType;
         this.originalConfiguration = originalConfiguration;
         this.optimizedConfiguration = optimizedConfiguration;
     }
@@ -42,10 +46,12 @@ public class ClientMessage {
         this.superstreamClusterId = superstreamClusterId;
     }
 
+    @JsonProperty("active")
     public boolean isActive() {
         return active;
     }
 
+    @JsonProperty("active")
     public void setActive(boolean active) {
         this.active = active;
     }
@@ -80,6 +86,26 @@ public class ClientMessage {
         this.clientVersion = clientVersion;
     }
 
+    @JsonProperty("language")
+    public String getLanguage() {
+        return language;
+    }
+
+    @JsonProperty("language")
+    public void setLanguage(String language) {
+        this.language = language;
+    }
+
+    @JsonProperty("client_type")
+    public String getClientType() {
+        return clientType;
+    }
+
+    @JsonProperty("client_type")
+    public void setClientType(String clientType) {
+        this.clientType = clientType;
+    }
+
     @JsonProperty("original_configuration")
     public Map<String, Object> getOriginalConfiguration() {
         return originalConfiguration;
@@ -110,13 +136,15 @@ public class ClientMessage {
                 Objects.equals(clientId, that.clientId) &&
                 Objects.equals(ipAddress, that.ipAddress) &&
                 Objects.equals(clientVersion, that.clientVersion) &&
+                Objects.equals(language, that.language) &&
+                Objects.equals(clientType, that.clientType) &&
                 Objects.equals(originalConfiguration, that.originalConfiguration) &&
                 Objects.equals(optimizedConfiguration, that.optimizedConfiguration);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(superstreamClusterId, active, clientId, ipAddress, clientVersion, originalConfiguration, optimizedConfiguration);
+        return Objects.hash(superstreamClusterId, active, clientId, ipAddress, clientVersion, language, clientType, originalConfiguration, optimizedConfiguration);
     }
 
     @Override
@@ -127,6 +155,8 @@ public class ClientMessage {
                 ", client_id='" + clientId + '\'' +
                 ", ip_address='" + ipAddress + '\'' +
                 ", version='" + clientVersion + '\'' +
+                ", language='" + language + '\'' +
+                ", client_type='" + clientType + '\'' +
                 ", original_configuration=" + originalConfiguration +
                 ", optimized_configuration=" + optimizedConfiguration +
                 '}';

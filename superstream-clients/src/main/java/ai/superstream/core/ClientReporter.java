@@ -28,6 +28,8 @@ public class ClientReporter {
     private static final String CLIENTS_TOPIC = "superstream.clients";
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final String CLIENT_VERSION = getClientVersion();
+    private static final String LANGUAGE = "Java";
+    private static final String CLIENT_TYPE = "producer"; // for now support only producers
 
     /**
      * Report client information to the superstream.clients topic.
@@ -65,6 +67,8 @@ public class ClientReporter {
                     clientId,
                     NetworkUtils.getLocalIpAddress(),
                     CLIENT_VERSION,
+                    LANGUAGE,
+                    CLIENT_TYPE,
                     getCompleteProducerConfig(originalConfiguration),
                     optimizedConfiguration
             );
