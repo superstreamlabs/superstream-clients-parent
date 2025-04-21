@@ -4,6 +4,8 @@ import ai.superstream.core.SuperstreamManager;
 import ai.superstream.util.SuperstreamLogger;
 import net.bytebuddy.asm.Advice;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Properties;
 import java.util.Map;
 
@@ -17,7 +19,7 @@ public class KafkaProducerInterceptor {
     /**
      * Called before the KafkaProducer constructor.
      *
-     * @param properties The producer properties
+     * @param args The producer properties
      */
     @Advice.OnMethodEnter
     public static void onEnter(@Advice.AllArguments Object[] args) {
@@ -45,7 +47,7 @@ public class KafkaProducerInterceptor {
                 return;
             }
 
-            if (properties == null || properties.isEmpty()) {
+            if (properties.isEmpty()) {
                 logger.warn("Could not extract properties from properties");
                 return;
             }
@@ -119,7 +121,7 @@ public class KafkaProducerInterceptor {
 
                     for (String fieldName : fieldNames) {
                         try {
-                            java.lang.reflect.Field field = arg.getClass().getDeclaredField(fieldName);
+                            Field field = arg.getClass().getDeclaredField(fieldName);
                             field.setAccessible(true);
                             Object fieldValue = field.get(arg);
 
@@ -144,7 +146,7 @@ public class KafkaProducerInterceptor {
                     }
 
                     // Try to call getters if field access failed
-                    for (java.lang.reflect.Method method : arg.getClass().getMethods()) {
+                    for (Method method : arg.getClass().getMethods()) {
                         if ((method.getName().equals("originals") ||
                                 method.getName().equals("values") ||
                                 method.getName().equals("configs") ||
@@ -175,7 +177,7 @@ public class KafkaProducerInterceptor {
 
                     // Last resort: Try to get the ProducerConfig's bootstrap.servers value
                     // and create a minimal Properties object
-                    for (java.lang.reflect.Method method : arg.getClass().getMethods()) {
+                    for (Method method : arg.getClass().getMethods()) {
                         if (method.getName().equals("getString") && method.getParameterCount() == 1) {
                             try {
                                 String bootstrapServers = (String) method.invoke(arg, "bootstrap.servers");

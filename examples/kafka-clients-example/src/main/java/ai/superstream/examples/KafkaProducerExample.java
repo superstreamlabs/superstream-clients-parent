@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
-import java.lang.reflect.Method;
 
 /**
  * Example application that uses the Kafka Clients API to produce messages.
