@@ -1,0 +1,134 @@
+package ai.superstream.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Represents a message to be sent to the superstream.clients topic.
+ */
+public class ClientMessage {
+    private int superstreamClusterId;
+    private boolean active;
+    private String clientId;
+    private String ipAddress;
+    private String clientVersion;
+    private Map<String, Object> originalConfiguration;
+    private Map<String, Object> optimizedConfiguration;
+
+    public ClientMessage() {
+        // Default constructor for Jackson
+    }
+
+    public ClientMessage(int superstreamClusterId, boolean active, String clientId, String ipAddress, String clientVersion,
+                         Map<String, Object> originalConfiguration, Map<String, Object> optimizedConfiguration) {
+        this.superstreamClusterId = superstreamClusterId;
+        this.active = active;
+        this.clientId = clientId;
+        this.ipAddress = ipAddress;
+        this.clientVersion = clientVersion;
+        this.originalConfiguration = originalConfiguration;
+        this.optimizedConfiguration = optimizedConfiguration;
+    }
+
+    @JsonProperty("superstream_cluster_id")
+    public int getSuperstreamClusterId() {
+        return superstreamClusterId;
+    }
+
+    @JsonProperty("superstream_cluster_id")
+    public void setSuperstreamClusterId(int superstreamClusterId) {
+        this.superstreamClusterId = superstreamClusterId;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
+    }
+
+    @JsonProperty("client_id")
+    public String getClientId() {
+        return clientId;
+    }
+
+    @JsonProperty("client_id")
+    public void setClientId(String clientId) {
+        this.clientId = clientId;
+    }
+
+    @JsonProperty("ip_address")
+    public String getIpAddress() {
+        return ipAddress;
+    }
+
+    @JsonProperty("ip_address")
+    public void setIpAddress(String ipAddress) {
+        this.ipAddress = ipAddress;
+    }
+
+    @JsonProperty("version")
+    public String getClientVersion() {
+        return clientVersion;
+    }
+
+    @JsonProperty("version")
+    public void setClientVersion(String clientVersion) {
+        this.clientVersion = clientVersion;
+    }
+
+    @JsonProperty("original_configuration")
+    public Map<String, Object> getOriginalConfiguration() {
+        return originalConfiguration;
+    }
+
+    @JsonProperty("original_configuration")
+    public void setOriginalConfiguration(Map<String, Object> originalConfiguration) {
+        this.originalConfiguration = originalConfiguration;
+    }
+
+    @JsonProperty("optimized_configuration")
+    public Map<String, Object> getOptimizedConfiguration() {
+        return optimizedConfiguration;
+    }
+
+    @JsonProperty("optimized_configuration")
+    public void setOptimizedConfiguration(Map<String, Object> optimizedConfiguration) {
+        this.optimizedConfiguration = optimizedConfiguration;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ClientMessage that = (ClientMessage) o;
+        return superstreamClusterId == that.superstreamClusterId &&
+                active == that.active &&
+                Objects.equals(clientId, that.clientId) &&
+                Objects.equals(ipAddress, that.ipAddress) &&
+                Objects.equals(clientVersion, that.clientVersion) &&
+                Objects.equals(originalConfiguration, that.originalConfiguration) &&
+                Objects.equals(optimizedConfiguration, that.optimizedConfiguration);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(superstreamClusterId, active, clientId, ipAddress, clientVersion, originalConfiguration, optimizedConfiguration);
+    }
+
+    @Override
+    public String toString() {
+        return "ClientMessage{" +
+                "superstream_cluster_id=" + superstreamClusterId +
+                ", active=" + active +
+                ", client_id='" + clientId + '\'' +
+                ", ip_address='" + ipAddress + '\'' +
+                ", version='" + clientVersion + '\'' +
+                ", original_configuration=" + originalConfiguration +
+                ", optimized_configuration=" + optimizedConfiguration +
+                '}';
+    }
+}
