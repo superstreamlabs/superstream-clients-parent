@@ -6,7 +6,7 @@
 
     <parent>
         <groupId>ai.superstream</groupId>
-        <artifactId>superstream-parent</artifactId>
+        <artifactId>superstream-clients-java</artifactId>
         <version>1.0.0</version>
     </parent>
 
@@ -15,7 +15,7 @@
 
     <name>Superstream Kafka Client Optimizer</name>
     <description>A Java library that dynamically optimizes Kafka client configuration based on recommendations</description>
-    <url>https://github.com/superstreamlabs/superstream-clients-parent/tree/master/superstream-clients</url>
+    <url>https://github.com/superstreamlabs/superstream-clients-java</url>
 
     <!-- License information -->
     <licenses>
@@ -27,9 +27,9 @@
 
     <!-- SCM information -->
     <scm>
-        <connection>scm:git:git://github.com/superstreamlabs/superstream-clients-parent/tree/master/superstream-clients.git</connection>
-        <developerConnection>scm:git:ssh://github.com/superstreamlabs/superstream-clients-parent/tree/master/superstream-clients.git</developerConnection>
-        <url>https://github.com/superstreamlabs/superstream-clients-parent/tree/master/superstream-clients</url>
+        <connection>scm:git:git://github.com/superstreamlabs/superstream-clients-java.git</connection>
+        <developerConnection>scm:git:ssh://github.com/superstreamlabs/superstream-clients-java.git</developerConnection>
+        <url>https://github.com/superstreamlabs/superstream-clients-java</url>
     </scm>
 
     <!-- Distribution management -->

@@ -2,7 +2,7 @@
 
 This repository contains the Superstream Clients library and example applications.
 
-For detailed information about the library, see the [Superstream Clients Documentation](https://github.com/superstreamlabs/superstream-clients-parent/README.md).
+For detailed information about the library, see the [Superstream Clients Documentation](https://github.com/superstreamlabs/superstream-clients-java/README.md).
 
 ## Code Examples
 
