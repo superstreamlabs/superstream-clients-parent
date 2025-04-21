@@ -57,10 +57,50 @@ Add the Java agent to your application's startup command:
 java -javaagent:/path/to/superstream-clients-1.0.0.jar -jar your-application.jar
 ```
 
-For Spring Boot applications:
+### Docker Integration
 
-```bash
-java -javaagent:/path/to/superstream-clients-1.0.0.jar -jar your-spring-boot-app.jar
+When using Superstream Clients with containerized applications, include the agent in your Dockerfile:
+
+```dockerfile
+FROM openjdk:11-jre
+
+# Copy your application
+COPY target/your-application.jar /app/your-application.jar
+
+# Copy the Superstream agent
+COPY path/to/superstream-clients-1.0.0.jar /app/lib/superstream-clients-1.0.0.jar
+
+# Set environment variables
+ENV SUPERSTREAM_TOPICS_LIST=your-topics
+
+# Run with the Java agent
+ENTRYPOINT ["java", "-javaagent:/app/lib/superstream-clients-1.0.0.jar", "-jar", "/app/your-application.jar"]
+```
+
+Alternatively, you can use a multi-stage build to download the agent from Maven Central:
+
+```dockerfile
+# Build stage
+FROM maven:3.8-openjdk-11 AS build
+
+# Get the Superstream agent
+RUN mvn org.apache.maven.plugins:maven-dependency-plugin:3.2.0:get \
+-DgroupId=ai.superstream \
+-DartifactId=superstream-clients \
+-Dversion=1.0.0
+
+RUN mvn org.apache.maven.plugins:maven-dependency-plugin:3.2.0:copy \
+-Dartifact=ai.superstream:superstream-clients:1.0.0 \
+-DoutputDirectory=/tmp
+
+# Final stage
+FROM openjdk:11-jre
+
+# Copy your application
+COPY target/your-application.jar /app/your-application.jar
+
+# Copy the agent from the build stage
+COPY --from=build /tmp/superstream-clients-1.0.0.jar /app/lib/superstream-clients-1.0.0.jar
 ```
 
 ### Required Environment Variables
