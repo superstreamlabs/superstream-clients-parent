@@ -37,33 +37,7 @@ export SUPERSTREAM_TOPICS_LIST=example-topic
 java -javaagent:../../target/superstream-clients-1.0.0.jar -jar target/akka-kafka-example-1.0.0-jar-with-dependencies.jar
 ```
 
-### IntelliJ Setup
-
-#### Kafka Clients Example
-
-1. Navigate to `examples/kafka-clients-example`
-2. Create a run configuration:
-   - Main class: `ai.superstream.examples.KafkaProducerExample`
-   - VM options: `-javaagent:$PROJECT_DIR$/superstream-clients/target/superstream-clients-1.0.0.jar`
-   - Environment variables: `SUPERSTREAM_TOPICS_LIST=example-topic`
-
-#### Spring Kafka Example
-
-1. Navigate to `examples/spring-kafka-example`
-2. Create a run configuration:
-   - Main class: `ai.superstream.examples.SpringKafkaExampleApplication`
-   - VM options: `-javaagent:$PROJECT_DIR$/superstream-clients/target/superstream-clients-1.0.0.jar`
-   - Environment variables: `SUPERSTREAM_TOPICS_LIST=example-topic`
-
-#### Akka Kafka Example
-
-1. Navigate to `examples/akka-kafka-example`
-2. Create a run configuration:
-   - Main class: `ai.superstream.examples.AkkaKafkaExample`
-   - VM options: `-javaagent:$PROJECT_DIR$/superstream-clients/target/superstream-clients-1.0.0.jar`
-   - Environment variables: `SUPERSTREAM_TOPICS_LIST=example-topic`
-
-## Building
+## Building the Clients Library
 
 ### Command Line
 
