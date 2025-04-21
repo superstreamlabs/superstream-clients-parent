@@ -5,7 +5,7 @@
 
 </div>
 
-# Superstream Clients
+# Superstream Client For Java
 
 A Java library for automatically optimizing Kafka producer configurations based on topic-specific recommendations.
 
