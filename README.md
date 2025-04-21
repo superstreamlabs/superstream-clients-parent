@@ -63,6 +63,9 @@ implementation 'ai.superstream:superstream-clients:1.0.0'
 
 ## Usage
 
+Step 1: Get Superstream jar
+
+Step 2:
 Add the Java agent to your application's startup command:
 
 ```bash
