@@ -54,7 +54,7 @@ Always use the latest version
 Always use the latest version
 
 ```groovy
-implementation group: 'ai.superstream', name: 'superstream-clients-java', version: '1.0.1-beta'
+implementation group: 'ai.superstream', name: 'superstream-clients', version: '1.0.0-beta'
 ```
 
 ### Step 2: Run
