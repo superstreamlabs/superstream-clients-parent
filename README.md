@@ -31,21 +31,15 @@ Works with any Java library that depends on `kafka-clients`, including:
 - **Intelligent optimization**: Identifies the most impactful topics to optimize
 - **Graceful fallback**: Falls back to default settings if optimization fails
 
-## Linger Time Configuration
-
-The linger.ms parameter follows these rules:
-
-1. If SUPERSTREAM_LATENCY_SENSITIVE is set to true:
-   - Linger value will never be modified, regardless of other settings
-
-
-2. If SUPERSTREAM_LATENCY_SENSITIVE is set to false or not set:
-   - If no explicit linger exists in original configuration: Use Superstream's optimized value
-   - If explicit linger exists: Use the maximum of original value and Superstream's optimized value
-
 ## Installation
 
-### Maven
+*Superstream package*: https://central.sonatype.com/artifact/ai.superstream/superstream-clients-java/overview
+
+### Step 1: Add Superstream package
+
+#### Maven
+
+Always use the latest version
 
 ```xml
 <dependency>
@@ -55,24 +49,24 @@ The linger.ms parameter follows these rules:
 </dependency>
 ```
 
-### Gradle
+#### Gradle
+
+Always use the latest version
 
 ```groovy
-implementation 'ai.superstream:superstream-clients:1.0.0'
+implementation group: 'ai.superstream', name: 'superstream-clients-java', version: '1.0.1-beta'
 ```
 
-## Usage
+### Step 2: Run
 
-Step 1: Get the Superstream jar
-
-Step 2:
 Add the Java agent to your application's startup command:
 
 ```bash
 java -javaagent:/path/to/superstream-clients-1.0.0.jar -jar your-application.jar
 ```
 
-Usually it will be 
+Common example: 
+
 ```bash
 java -javaagent:$MAVEN_REPOSITORY$/ai/superstream/superstream-clients/1.0.0/superstream-clients-java-1.0.0.jar -jar your-application.jar
 ```
@@ -137,6 +131,17 @@ Example:
 export SUPERSTREAM_TOPICS_LIST=orders,payments,user-events
 export SUPERSTREAM_LATENCY_SENSITIVE=true
 ```
+
+### SUPERSTREAM_LATENCY_SENSITIVE Explained
+
+The linger.ms parameter follows these rules:
+
+1. If SUPERSTREAM_LATENCY_SENSITIVE is set to true:
+   - Linger value will never be modified, regardless of other settings
+
+2. If SUPERSTREAM_LATENCY_SENSITIVE is set to false or not set:
+   - If no explicit linger exists in original configuration: Use Superstream's optimized value
+   - If explicit linger exists: Use the maximum of original value and Superstream's optimized value
 
 ## Prerequisites
 
