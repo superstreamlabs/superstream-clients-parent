@@ -47,7 +47,7 @@ pipeline {
                         }
                         withCredentials([file(credentialsId: 'settings-xml-superstream', variable: 'MAVEN_SETTINGS')]) {
                             sh "mvn -B package --file pom.xml"
-                            if (branchName == 'deploy-maven') {
+                            if (branchName == 'master') {
                                 def betaVersion = "${env.BASE_VERSION}-beta"
                                 echo "Setting beta version: ${betaVersion}"                                
                                 sh "mvn versions:set -DnewVersion=${betaVersion}"
