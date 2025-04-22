@@ -13,9 +13,7 @@ public class ConfluentProducerExample {
 
     // === Configuration Constants ===
     private static final String DEFAULT_BOOTSTRAP_SERVERS = "pkc-7xoy1.eu-central-1.aws.confluent.cloud:9092";
-    private static final String CLIENT_ID = "superstream-example-producer";
-    private static final String COMPRESSION_TYPE = "gzip";
-    private static final int BATCH_SIZE = 16384;
+
 
     // Confluent Cloud authentication (replace with your real values)
     private static final String CONFLUENT_USERNAME = "<your-confluent-api-key>";
@@ -24,9 +22,13 @@ public class ConfluentProducerExample {
     private static final String SECURITY_PROTOCOL = "SASL_SSL";
     private static final String SASL_MECHANISM = "PLAIN";
 
-    private static final String TOPIC = "example-topic";
-    private static final String KEY = "test-key";
-    private static final String VALUE = "Hello, Superstream!";
+    private static final String CLIENT_ID = "superstream-example-producer";
+    private static final String COMPRESSION_TYPE = "gzip";
+    private static final int BATCH_SIZE = 16384;
+
+    private static final String TOPIC_NAME = "example-topic";
+    private static final String MESSAGE_KEY = "test-key";
+    private static final String MESSAGE_VALUE = "Hello, Superstream!";
 
     public static void main(String[] args) {
         String bootstrapServers = System.getenv("KAFKA_BOOTSTRAP_SERVERS");
@@ -34,6 +36,7 @@ public class ConfluentProducerExample {
             bootstrapServers = DEFAULT_BOOTSTRAP_SERVERS;
         }
 
+        // Configure the producer
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put("client.id", CLIENT_ID);
@@ -48,7 +51,7 @@ public class ConfluentProducerExample {
                 CONFLUENT_USERNAME, CONFLUENT_PASSWORD
         ));
 
-        // Optional producer tuning
+        // Set some basic configuration
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
 
@@ -56,12 +59,24 @@ public class ConfluentProducerExample {
         props.forEach((k, v) -> logger.info("  {} = {}", k, v));
 
         try (Producer<String, String> producer = new KafkaProducer<>(props)) {
-            String topic = TOPIC;
-            String key = KEY;
-            String value = VALUE;
+            // The Superstream Agent should have intercepted the producer creation
+            // and potentially optimized the configuration
 
-            logger.info("Sending message to topic {}: key={}, value={}", topic, key, value);
-            producer.send(new ProducerRecord<>(topic, key, value)).get();
+            // Log the actual configuration used by the producer
+            logger.info("Actual producer configuration (after potential Superstream optimization):");
+
+            // Get the actual configuration from the producer via reflection
+            java.lang.reflect.Field configField = producer.getClass().getDeclaredField("producerConfig");
+            configField.setAccessible(true);
+            org.apache.kafka.clients.producer.ProducerConfig actualConfig =
+                    (org.apache.kafka.clients.producer.ProducerConfig) configField.get(producer);
+
+            logger.info("  compression.type = {}", actualConfig.getString(ProducerConfig.COMPRESSION_TYPE_CONFIG));
+            logger.info("  batch.size = {}", actualConfig.getInt(ProducerConfig.BATCH_SIZE_CONFIG));
+
+            // Send a test message
+            logger.info("Sending message to topic {}: key={}, value={}", TOPIC_NAME, MESSAGE_KEY, MESSAGE_VALUE);
+            producer.send(new ProducerRecord<>(TOPIC_NAME, MESSAGE_KEY, MESSAGE_VALUE)).get();
             logger.info("Message sent successfully!");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

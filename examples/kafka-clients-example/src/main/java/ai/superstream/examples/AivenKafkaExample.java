@@ -35,23 +35,24 @@ public class AivenKafkaExample {
     // === Configuration Constants ===
     private static final String DEFAULT_BOOTSTRAP_SERVERS =
             "superstream-test-superstream-3591.k.aivencloud.com:18837";
-    private static final String CLIENT_ID = "superstream-example-producer";
-    private static final String COMPRESSION_TYPE = "gzip";
-    private static final int BATCH_SIZE = 16384;
-    private static final String SECURITY_PROTOCOL = "SSL";
-    private static final String TRUSTSTORE_TYPE = "PEM";
-    private static final String KEYSTORE_TYPE = "PEM";
-    private static final String ENDPOINT_IDENTIFICATION_ALGORITHM = ""; // skip hostname verification
-    private static final String TOPIC = "example-topic";
-    private static final String KEY = "test-key";
-    private static final String VALUE = "Hello, Superstream!";
-
     private static final String TRUSTSTORE_PATH =
             "../../examples/kafka-clients-example/src/main/resources/crets/ca.pem";
     private static final String KEYSTORE_CERT_PATH =
             "../../examples/kafka-clients-example/src/main/resources/crets/client.cert.pem";
     private static final String KEYSTORE_KEY_PATH =
             "../../examples/kafka-clients-example/src/main/resources/crets/client.pk8.pem";
+    private static final String SECURITY_PROTOCOL = "SSL";
+    private static final String TRUSTSTORE_TYPE = "PEM";
+    private static final String KEYSTORE_TYPE = "PEM";
+    private static final String ENDPOINT_IDENTIFICATION_ALGORITHM = ""; // skip hostname verification
+
+    private static final String CLIENT_ID = "superstream-example-producer";
+    private static final String COMPRESSION_TYPE = "gzip";
+    private static final int BATCH_SIZE = 16384;
+
+    private static final String TOPIC_NAME = "example-topic";
+    private static final String MESSAGE_KEY = "test-key";
+    private static final String MESSAGE_VALUE = "Hello, Superstream!";
 
     public static void main(String[] args) {
         // Get bootstrap servers from environment variable or use default
@@ -95,18 +96,12 @@ public class AivenKafkaExample {
             org.apache.kafka.clients.producer.ProducerConfig actualConfig =
                     (org.apache.kafka.clients.producer.ProducerConfig) configField.get(producer);
 
-            // Get the values for key configuration parameters
             logger.info("  compression.type = {}", actualConfig.getString(ProducerConfig.COMPRESSION_TYPE_CONFIG));
             logger.info("  batch.size = {}", actualConfig.getInt(ProducerConfig.BATCH_SIZE_CONFIG));
 
             // Send a test message
-            String topic = TOPIC;
-            String key = KEY;
-            String value = VALUE;
-
-
-            logger.info("Sending message to topic {}: key={}, value={}", topic, key, value);
-            producer.send(new ProducerRecord<>(topic, key, value)).get();
+            logger.info("Sending message to topic {}: key={}, value={}", TOPIC_NAME, MESSAGE_KEY, MESSAGE_VALUE);
+            producer.send(new ProducerRecord<>(TOPIC_NAME, MESSAGE_KEY, MESSAGE_VALUE)).get();
             logger.info("Message sent successfully!");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
