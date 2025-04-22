@@ -63,13 +63,18 @@ implementation 'ai.superstream:superstream-clients:1.0.0'
 
 ## Usage
 
-Step 1: Get Superstream jar
+Step 1: Get the Superstream jar
 
 Step 2:
 Add the Java agent to your application's startup command:
 
 ```bash
 java -javaagent:/path/to/superstream-clients-1.0.0.jar -jar your-application.jar
+```
+
+Usually it will be 
+```bash
+java -javaagent:$MAVEN_REPOSITORY$/ai/superstream/superstream-clients/1.0.0/superstream-clients-java-1.0.0.jar -jar your-application.jar
 ```
 
 ### Docker Integration
