@@ -212,11 +212,11 @@
 
     <dependencyManagement>
         <dependencies>
-            <dependency>
+            <!-- <dependency>
                 <groupId>ai.superstream</groupId>
                 <artifactId>superstream-clients</artifactId>
                 <version>${project.version}</version>
-            </dependency>
+            </dependency> -->
             <dependency>
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
