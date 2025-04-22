@@ -8,6 +8,9 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 
@@ -23,14 +26,25 @@ import java.util.concurrent.ExecutionException;
  *    - example-topic - for test messages
  *
  * Environment variables:
- * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: localhost:9092)
+ * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: superstream-test-superstream-3591.k.aivencloud.com:18837)
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
  */
-public class KafkaProducerExample {
-    private static final Logger logger = LoggerFactory.getLogger(KafkaProducerExample.class);
+public class AivenKafkaExample {
+    private static final Logger logger = LoggerFactory.getLogger(AivenKafkaExample.class);
 
     // === Configuration Constants ===
-    private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
+    private static final String DEFAULT_BOOTSTRAP_SERVERS =
+            "superstream-test-superstream-3591.k.aivencloud.com:18837";
+    private static final String TRUSTSTORE_PATH =
+            "../../examples/kafka-clients-example/src/main/resources/crets/ca.pem";
+    private static final String KEYSTORE_CERT_PATH =
+            "../../examples/kafka-clients-example/src/main/resources/crets/client.cert.pem";
+    private static final String KEYSTORE_KEY_PATH =
+            "../../examples/kafka-clients-example/src/main/resources/crets/client.pk8.pem";
+    private static final String SECURITY_PROTOCOL = "SSL";
+    private static final String TRUSTSTORE_TYPE = "PEM";
+    private static final String KEYSTORE_TYPE = "PEM";
+    private static final String ENDPOINT_IDENTIFICATION_ALGORITHM = ""; // skip hostname verification
 
     private static final String CLIENT_ID = "superstream-example-producer";
     private static final String COMPRESSION_TYPE = "gzip";
@@ -41,6 +55,7 @@ public class KafkaProducerExample {
     private static final String MESSAGE_VALUE = "Hello, Superstream!";
 
     public static void main(String[] args) {
+        // Get bootstrap servers from environment variable or use default
         String bootstrapServers = System.getenv("KAFKA_BOOTSTRAP_SERVERS");
         if (bootstrapServers == null || bootstrapServers.isEmpty()) {
             bootstrapServers = DEFAULT_BOOTSTRAP_SERVERS;
@@ -53,10 +68,17 @@ public class KafkaProducerExample {
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
+        props.put("security.protocol", SECURITY_PROTOCOL);
+        props.put("ssl.truststore.type", TRUSTSTORE_TYPE);
+        props.put("ssl.keystore.type", KEYSTORE_TYPE);
+        props.put("ssl.truststore.certificates", TRUSTSTORE_PATH);
+        props.put("ssl.keystore.certificate.chain", KEYSTORE_CERT_PATH);
+        props.put("ssl.keystore.key", KEYSTORE_KEY_PATH);
+        props.put("ssl.endpoint.identification.algorithm", ENDPOINT_IDENTIFICATION_ALGORITHM);
+
         // Set some basic configuration
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
-
         logger.info("Creating producer with bootstrap servers: {}", bootstrapServers);
         logger.info("Original producer configuration:");
         props.forEach((k, v) -> logger.info("  {} = {}", k, v));

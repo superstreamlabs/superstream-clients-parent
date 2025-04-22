@@ -1,9 +1,6 @@
 package ai.superstream.examples;
 
-import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.Producer;
-import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,14 +20,22 @@ import java.util.concurrent.ExecutionException;
  *    - example-topic - for test messages
  *
  * Environment variables:
- * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: localhost:9092)
+ * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: pkc-7xoy1.eu-central-1.aws.confluent.cloud:9092)
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
  */
-public class KafkaProducerExample {
-    private static final Logger logger = LoggerFactory.getLogger(KafkaProducerExample.class);
+public class ConfluentProducerExample {
+    private static final Logger logger = LoggerFactory.getLogger(ConfluentProducerExample.class);
 
     // === Configuration Constants ===
-    private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
+    private static final String DEFAULT_BOOTSTRAP_SERVERS = "pkc-7xoy1.eu-central-1.aws.confluent.cloud:9092";
+
+
+    // Confluent Cloud authentication (replace with your real values)
+    private static final String CONFLUENT_USERNAME = "<your-confluent-api-key>";
+    private static final String CONFLUENT_PASSWORD = "<your-confluent-api-secret>";
+
+    private static final String SECURITY_PROTOCOL = "SASL_SSL";
+    private static final String SASL_MECHANISM = "PLAIN";
 
     private static final String CLIENT_ID = "superstream-example-producer";
     private static final String COMPRESSION_TYPE = "gzip";
@@ -53,12 +58,19 @@ public class KafkaProducerExample {
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
+        // Confluent security configuration
+        props.put("security.protocol", SECURITY_PROTOCOL);
+        props.put("sasl.mechanism", SASL_MECHANISM);
+        props.put("sasl.jaas.config", String.format(
+                "org.apache.kafka.common.security.plain.PlainLoginModule required username='%s' password='%s';",
+                CONFLUENT_USERNAME, CONFLUENT_PASSWORD
+        ));
+
         // Set some basic configuration
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
 
         logger.info("Creating producer with bootstrap servers: {}", bootstrapServers);
-        logger.info("Original producer configuration:");
         props.forEach((k, v) -> logger.info("  {} = {}", k, v));
 
         try (Producer<String, String> producer = new KafkaProducer<>(props)) {
