@@ -32,67 +32,57 @@ pipeline {
             }
         } 
 
-        // stage('Build and Deploy') {
-        //     steps {
-        //         script {
-        //             def branchName = env.BRANCH_NAME ?: ''
-        //             dir('superstream-clients'){
-        //                 withCredentials([file(credentialsId: 'gpg-key', variable: 'GPG_KEY')]) {
-        //                                         //   gpg --batch --import $GPG_KEY
-        //                     sh '''
-        //                     echo '${env.GPG_PASSPHRASE}' | gpg --batch --yes --passphrase-fd 0 --import $GPG_KEY
-        //                     echo "allow-loopback-pinentry" > /tmp/.gnupg/gpg-agent.conf
-        //                     echo "D64C041FB68170463BE78AD7C4E3F1A8A5F0A659:6:" | gpg --import-ownertrust                      
-        //                     '''
-        //                 }
-        //                 withCredentials([file(credentialsId: 'settings-xml-superstream', variable: 'MAVEN_SETTINGS')]) {
-        //                     sh "mvn -B package --file pom.xml"
-        //                     if (branchName == 'deploy-maven') {
-        //                         def betaVersion = "${env.BASE_VERSION}-beta"
-        //                         echo "Setting beta version: ${betaVersion}"                                
-        //                         sh "mvn versions:set -DnewVersion=${betaVersion}"
-        //                     }
-        //                     sh "mvn -s $MAVEN_SETTINGS deploy -DautoPublish=true"
-        //                 }
-        //             }                    
-        //         }
-
-                
-        //     }
-        // }
-
-        // stage('Checkout to version branch'){
-        //     when {
-        //             expression { env.BRANCH_NAME == 'latest' }
-        //         }        
-        //     steps {
-        //         sh """
-        //             curl -L https://github.com/cli/cli/releases/download/v2.40.0/gh_2.40.0_linux_amd64.tar.gz -o gh.tar.gz 
-        //             tar -xvf gh.tar.gz
-        //             mv gh_2.40.0_linux_amd64/bin/gh /usr/local/bin 
-        //             rm -rf gh_2.40.0_linux_amd64 gh.tar.gz
-        //         """
-        //         withCredentials([sshUserPrivateKey(keyFileVariable:'check',credentialsId: 'main-github')]) {
-        //         sh """
-        //         GIT_SSH_COMMAND='ssh -i $check -o StrictHostKeyChecking=no' git checkout -b ${env.BASE_VERSION}
-        //         GIT_SSH_COMMAND='ssh -i $check -o StrictHostKeyChecking=no' git push --set-upstream origin ${env.BASE_VERSION}
-        //         """
-        //         }
-        //         withCredentials([string(credentialsId: 'gh_token', variable: 'GH_TOKEN')]) {
-        //         sh """
-        //         gh release create ${env.BASE_VERSION} --generate-notes
-        //         """
-        //         }
-        //     }
-        // } 
-        stage('Echo Version') {
+        stage('Build and Deploy') {
             steps {
-                sh """
-                   echo ${env.BASE_VERSION}
-                """
+                script {
+                    def branchName = env.BRANCH_NAME ?: ''
+                    dir('superstream-clients'){
+                        withCredentials([file(credentialsId: 'gpg-key', variable: 'GPG_KEY')]) {
+                        //   gpg --batch --import $GPG_KEY
+                            sh '''
+                            echo '${env.GPG_PASSPHRASE}' | gpg --batch --yes --passphrase-fd 0 --import $GPG_KEY
+                            echo "allow-loopback-pinentry" > /tmp/.gnupg/gpg-agent.conf
+                            echo "D64C041FB68170463BE78AD7C4E3F1A8A5F0A659:6:" | gpg --import-ownertrust                      
+                            '''
+                        }
+                        withCredentials([file(credentialsId: 'settings-xml-superstream', variable: 'MAVEN_SETTINGS')]) {
+                            sh "mvn -B package --file pom.xml"
+                            if (branchName == 'deploy-maven') {
+                                def betaVersion = "${env.BASE_VERSION}-beta"
+                                echo "Setting beta version: ${betaVersion}"                                
+                                sh "mvn versions:set -DnewVersion=${betaVersion}"
+                            }
+                            sh "mvn -s $MAVEN_SETTINGS deploy -DautoPublish=true"
+                        }
+                    }                    
+                }
             }
         }
 
+        stage('Checkout to version branch'){
+            when {
+                    expression { env.BRANCH_NAME == 'latest' }
+                }        
+            steps {
+                sh """
+                    curl -L https://github.com/cli/cli/releases/download/v2.40.0/gh_2.40.0_linux_amd64.tar.gz -o gh.tar.gz 
+                    tar -xvf gh.tar.gz
+                    mv gh_2.40.0_linux_amd64/bin/gh /usr/local/bin 
+                    rm -rf gh_2.40.0_linux_amd64 gh.tar.gz
+                """
+                withCredentials([sshUserPrivateKey(keyFileVariable:'check',credentialsId: 'main-github')]) {
+                sh """
+                GIT_SSH_COMMAND='ssh -i $check -o StrictHostKeyChecking=no' git checkout -b ${env.BASE_VERSION}
+                GIT_SSH_COMMAND='ssh -i $check -o StrictHostKeyChecking=no' git push --set-upstream origin ${env.BASE_VERSION}
+                """
+                }
+                withCredentials([string(credentialsId: 'gh_token', variable: 'GH_TOKEN')]) {
+                sh """
+                gh release create ${env.BASE_VERSION} --generate-notes
+                """
+                }
+            }
+        } 
     }
     post {
         always {
