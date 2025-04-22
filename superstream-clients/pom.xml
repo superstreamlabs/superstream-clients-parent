@@ -27,9 +27,9 @@
 
     <developers>
         <developer>
-        <id>teamsuperstream</id>
-        <name>Team Superstream</name>
-        <email>team@superstream.ai</email>
+        <id>superstreamlabs</id>
+        <name>Superstream Labs</name>
+        <email>support@superstream.ai</email>
         </developer>
     </developers>    
 
@@ -284,6 +284,13 @@
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
             </resource>
+            <resource>
+            <directory>../</directory>
+            <includes>
+                <include>README.md</include>
+            </includes>
+            <targetPath>.</targetPath> <!-- place it in root of jar -->
+            </resource>            
         </resources>
     </build>
 
