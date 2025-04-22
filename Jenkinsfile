@@ -14,23 +14,23 @@ pipeline {
     }
 
     stages {
-        // stage('Read Version from pom.xml') {              
-        //     steps {
-        //         dir('superstream-clients'){
-        //             script {
-        //                 // Read the version from pom.xml
-        //                 def pomVersion = sh(
-        //                     script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout",
-        //                     returnStdout: true
-        //                 ).trim()
+        stage('Read Version from pom.xml') {              
+            steps {
+                dir('superstream-clients'){
+                    script {
+                        // Read the version from pom.xml
+                        def pomVersion = sh(
+                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout",
+                            returnStdout: true
+                        ).trim()
 
-        //                 echo "Original version from pom.xml: ${pomVersion}"
-        //                 env.BASE_VERSION = pomVersion
-        //             }                   
-        //         }
+                        echo "Original version from pom.xml: ${pomVersion}"
+                        env.BASE_VERSION = pomVersion
+                    }                   
+                }
 
-        //     }
-        // } 
+            }
+        } 
 
         // stage('Build and Deploy') {
         //     steps {
