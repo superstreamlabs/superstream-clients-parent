@@ -43,18 +43,20 @@ pipeline {
                         echo "Using version from version.conf: ${env.versionTag}"                        
                     }
                 }
-                withCredentials([file(credentialsId: 'gpg-key', variable: 'GPG_KEY')]) {
-                                        //   gpg --batch --import $GPG_KEY
-                    sh '''
-                      echo '${env.GPG_PASSPHRASE}' | gpg --batch --yes --passphrase-fd 0 --import $GPG_KEY
-                      echo "allow-loopback-pinentry" > /tmp/.gnupg/gpg-agent.conf
-                      echo "D64C041FB68170463BE78AD7C4E3F1A8A5F0A659:6:" | gpg --import-ownertrust                      
-                    '''
-                }
-                withCredentials([file(credentialsId: 'settings-xml-superstream', variable: 'MAVEN_SETTINGS')]) {
-                    sh "mvn -B package --file pom.xml"
-                    sh "mvn versions:set -DnewVersion=${env.versionTag}"
-                    sh "mvn -s $MAVEN_SETTINGS deploy -DautoPublish=true"
+                dir('superstream-clients'){
+                    withCredentials([file(credentialsId: 'gpg-key', variable: 'GPG_KEY')]) {
+                                            //   gpg --batch --import $GPG_KEY
+                        sh '''
+                        echo '${env.GPG_PASSPHRASE}' | gpg --batch --yes --passphrase-fd 0 --import $GPG_KEY
+                        echo "allow-loopback-pinentry" > /tmp/.gnupg/gpg-agent.conf
+                        echo "D64C041FB68170463BE78AD7C4E3F1A8A5F0A659:6:" | gpg --import-ownertrust                      
+                        '''
+                    }
+                    withCredentials([file(credentialsId: 'settings-xml-superstream', variable: 'MAVEN_SETTINGS')]) {
+                        sh "mvn -B package --file pom.xml"
+                        sh "mvn versions:set -DnewVersion=${env.versionTag}"
+                        sh "mvn -s $MAVEN_SETTINGS deploy -DautoPublish=true"
+                    }
                 }
                 
             }
