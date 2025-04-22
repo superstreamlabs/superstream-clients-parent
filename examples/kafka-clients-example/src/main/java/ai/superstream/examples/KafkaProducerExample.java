@@ -11,6 +11,21 @@ import org.slf4j.LoggerFactory;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 
+/**
+ * Example application that uses the Kafka Clients API to produce messages.
+ * Run with:
+ * java -javaagent:path/to/superstream-clients-1.0.0.jar -Dlogback.configurationFile=logback.xml -jar kafka-clients-example-1.0.0-jar-with-dependencies.jar
+ *
+ * Prerequisites:
+ * 1. A Kafka server with the following topics:
+ *    - superstream.metadata_v1 - with a configuration message
+ *    - superstream.clients - for client reports
+ *    - example-topic - for test messages
+ *
+ * Environment variables:
+ * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: localhost:9092)
+ * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
+ */
 public class KafkaProducerExample {
     private static final Logger logger = LoggerFactory.getLogger(KafkaProducerExample.class);
 
