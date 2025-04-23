@@ -12,6 +12,8 @@ public class SuperstreamLogger {
     private final Logger logger;
     private final String loggerName;
     private static boolean slf4jAvailable = false;
+    // Flag to control debug logging - default to false to hide debug logs
+    private static boolean debugEnabled = false;
 
     static {
         try {
@@ -22,6 +24,18 @@ public class SuperstreamLogger {
             System.out.println("[superstream] No SLF4J implementation found. Falling back to System.out logging.");
             slf4jAvailable = false;
         }
+
+        // Check if debug logging is enabled via system property or environment variable
+        String debugFlag = System.getProperty("superstream.debug");
+        if (debugFlag == null) {
+            debugFlag = System.getenv("SUPERSTREAM_DEBUG");
+        }
+        debugEnabled = "true".equalsIgnoreCase(debugFlag);
+    }
+
+    // Enable or disable debug logging programmatically
+    public static void setDebugEnabled(boolean enabled) {
+        debugEnabled = enabled;
     }
 
     private SuperstreamLogger(Class<?> clazz) {
@@ -151,6 +165,11 @@ public class SuperstreamLogger {
      * @param message The message to log
      */
     public void debug(String message) {
+        // Early return if debug is disabled
+        if (!debugEnabled && !slf4jAvailable) {
+            return;
+        }
+
         if (slf4jAvailable) {
             logger.debug(withPrefix(message));
         } else {
@@ -165,6 +184,11 @@ public class SuperstreamLogger {
      * @param args The parameters for the message
      */
     public void debug(String message, Object... args) {
+        // Early return if debug is disabled
+        if (!debugEnabled && !slf4jAvailable) {
+            return;
+        }
+
         if (slf4jAvailable) {
             logger.debug(withPrefix(message), args);
         } else {
@@ -191,4 +215,6 @@ public class SuperstreamLogger {
         }
         return result;
     }
+
+
 }

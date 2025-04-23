@@ -125,6 +125,7 @@ COPY --from=build /tmp/superstream-clients-1.0.0.jar /app/lib/superstream-client
 
 - `SUPERSTREAM_LATENCY_SENSITIVE`: Set to "true" to prevent any modification to linger.ms values
 - `SUPERSTREAM_DISABLED`: Set to "true" to disable optimization
+- `SUPERSTREAM_DEBUG`: Set to "true" to enable debug logs
 
 Example:
 ```bash
