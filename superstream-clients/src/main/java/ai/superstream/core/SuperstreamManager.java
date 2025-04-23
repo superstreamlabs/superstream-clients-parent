@@ -110,9 +110,14 @@ public class SuperstreamManager {
                 return false;
             }
 
+            // Create a copy of the original configuration for reporting
+            Properties originalProperties = new Properties();
+            originalProperties.putAll(properties);
+
             // Check if optimization is active
             if (!metadataMessage.isActive()) {
                 logger.info("Superstream optimization is not active for this kafka cluster, please head to the Superstream console and activate it.");
+                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap());
                 return false;
             }
 
@@ -122,10 +127,6 @@ public class SuperstreamManager {
             // Get the optimal configuration
             Map<String, Object> optimalConfiguration = configurationOptimizer.getOptimalConfiguration(
                     metadataMessage, applicationTopics);
-
-            // Create a copy of the original configuration for reporting
-            Properties originalProperties = new Properties();
-            originalProperties.putAll(properties);
 
             // Apply the optimal configuration
             List<String> modifiedKeys = configurationOptimizer.applyOptimalConfiguration(properties, optimalConfiguration);
