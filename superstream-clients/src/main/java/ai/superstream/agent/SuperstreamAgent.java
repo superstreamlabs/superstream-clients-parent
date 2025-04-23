@@ -20,6 +20,12 @@ public class SuperstreamAgent {
      * @param instrumentation Instrumentation instance
      */
     public static void premain(String arguments, Instrumentation instrumentation) {
+        // Check environment variable
+        String debugEnv = System.getenv("SUPERSTREAM_DEBUG");
+        if ("true".equalsIgnoreCase(debugEnv)) {
+            SuperstreamLogger.setDebugEnabled(true);
+        }
+
         logger.info("Superstream Agent initialized");
         install(instrumentation);
     }

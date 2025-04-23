@@ -78,7 +78,7 @@ pipeline {
                 }
                 withCredentials([string(credentialsId: 'gh_token', variable: 'GH_TOKEN')]) {
                 sh """
-                gh release create ${env.BASE_VERSION} --generate-notes
+                gh release create ${env.BASE_VERSION} target/superstream-clients-${env.BASE_VERSION}.jar --generate-notes
                 """
                 }
             }

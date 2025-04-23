@@ -68,7 +68,7 @@ java -javaagent:/path/to/superstream-clients-1.0.0.jar -jar your-application.jar
 Common example: 
 
 ```bash
-java -javaagent:$MAVEN_REPOSITORY$/ai/superstream/superstream-clients/1.0.0/superstream-clients-java-1.0.0.jar -jar your-application.jar
+java -javaagent:$MAVEN_REPOSITORY$/ai/superstream/superstream-clients/1.0.0/superstream-clients-1.0.0.jar -jar your-application.jar
 ```
 
 ### Docker Integration
@@ -125,6 +125,7 @@ COPY --from=build /tmp/superstream-clients-1.0.0.jar /app/lib/superstream-client
 
 - `SUPERSTREAM_LATENCY_SENSITIVE`: Set to "true" to prevent any modification to linger.ms values
 - `SUPERSTREAM_DISABLED`: Set to "true" to disable optimization
+- `SUPERSTREAM_DEBUG`: Set to "true" to enable debug logs
 
 Example:
 ```bash
