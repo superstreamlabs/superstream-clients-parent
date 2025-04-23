@@ -19,11 +19,6 @@ pipeline {
 
     stages {
         stage('Read Version from pom.xml') {  
-            when {
-                expression {
-                    env.BRANCH_NAME == 'master' && isManualTrigger()
-                }
-            }                        
             steps {
                 dir('superstream-clients'){
                     script {
