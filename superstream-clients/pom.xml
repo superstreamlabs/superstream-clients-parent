@@ -6,7 +6,7 @@
 
     <groupId>ai.superstream</groupId>
     <artifactId>superstream-clients</artifactId>
-    <version>1.0.3</version>
+    <version>1.0.4</version>
     <packaging>jar</packaging>
 
     <name>Superstream Kafka Client Optimizer</name>
@@ -51,7 +51,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <kafka.version>3.3.2</kafka.version>
         <jackson.version>2.14.2</jackson.version>
-        <slf4j.version>1.7.36</slf4j.version>
         <bytebuddy.version>1.14.9</bytebuddy.version>
     </properties>
 
@@ -81,13 +80,6 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
-        </dependency>
-
-        <!-- Logging -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>${slf4j.version}</version>
         </dependency>
 
         <!-- Test dependencies -->
