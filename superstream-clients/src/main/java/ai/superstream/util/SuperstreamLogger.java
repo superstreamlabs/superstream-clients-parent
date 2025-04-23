@@ -4,15 +4,29 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Custom logger for the Superstream library.
- * All logs will have the "superstream" prefix.
+ * Custom logger for the Superstream library that falls back to System.out/System.err
+ * if no SLF4J implementation is available.
  */
 public class SuperstreamLogger {
     private static final String PREFIX = "superstream";
     private final Logger logger;
+    private final String loggerName;
+    private static boolean slf4jAvailable = false;
+
+    static {
+        try {
+            // Try to detect if SLF4J implementation is available
+            Class.forName("org.slf4j.impl.StaticLoggerBinder");
+            slf4jAvailable = true;
+        } catch (ClassNotFoundException e) {
+            System.out.println("[superstream] No SLF4J implementation found. Falling back to System.out logging.");
+            slf4jAvailable = false;
+        }
+    }
 
     private SuperstreamLogger(Class<?> clazz) {
         this.logger = LoggerFactory.getLogger(clazz);
+        this.loggerName = clazz.getSimpleName();
     }
 
     /**
@@ -41,7 +55,11 @@ public class SuperstreamLogger {
      * @param message The message to log
      */
     public void info(String message) {
-        logger.info(withPrefix(message));
+        if (slf4jAvailable) {
+            logger.info(withPrefix(message));
+        } else {
+            System.out.println(loggerName + " INFO: " + withPrefix(message));
+        }
     }
 
     /**
@@ -51,7 +69,11 @@ public class SuperstreamLogger {
      * @param args The parameters for the message
      */
     public void info(String message, Object... args) {
-        logger.info(withPrefix(message), args);
+        if (slf4jAvailable) {
+            logger.info(withPrefix(message), args);
+        } else {
+            System.out.println(loggerName + " INFO: " + withPrefix(formatMessage(message, args)));
+        }
     }
 
     /**
@@ -60,7 +82,11 @@ public class SuperstreamLogger {
      * @param message The message to log
      */
     public void warn(String message) {
-        logger.warn(withPrefix(message));
+        if (slf4jAvailable) {
+            logger.warn(withPrefix(message));
+        } else {
+            System.out.println(loggerName + " WARN: " + withPrefix(message));
+        }
     }
 
     /**
@@ -70,7 +96,11 @@ public class SuperstreamLogger {
      * @param args The parameters for the message
      */
     public void warn(String message, Object... args) {
-        logger.warn(withPrefix(message), args);
+        if (slf4jAvailable) {
+            logger.warn(withPrefix(message), args);
+        } else {
+            System.out.println(loggerName + " WARN: " + withPrefix(formatMessage(message, args)));
+        }
     }
 
     /**
@@ -79,7 +109,11 @@ public class SuperstreamLogger {
      * @param message The message to log
      */
     public void error(String message) {
-        logger.error(withPrefix(message));
+        if (slf4jAvailable) {
+            logger.error(withPrefix(message));
+        } else {
+            System.err.println(loggerName + " ERROR: " + withPrefix(message));
+        }
     }
 
     /**
@@ -89,7 +123,11 @@ public class SuperstreamLogger {
      * @param args The parameters for the message
      */
     public void error(String message, Object... args) {
-        logger.error(withPrefix(message), args);
+        if (slf4jAvailable) {
+            logger.error(withPrefix(message), args);
+        } else {
+            System.err.println(loggerName + " ERROR: " + withPrefix(formatMessage(message, args)));
+        }
     }
 
     /**
@@ -99,7 +137,12 @@ public class SuperstreamLogger {
      * @param throwable The exception to log
      */
     public void error(String message, Throwable throwable) {
-        logger.error(withPrefix(message), throwable);
+        if (slf4jAvailable) {
+            logger.error(withPrefix(message), throwable);
+        } else {
+            System.err.println(loggerName + " ERROR: " + withPrefix(message));
+            throwable.printStackTrace();
+        }
     }
 
     /**
@@ -108,7 +151,11 @@ public class SuperstreamLogger {
      * @param message The message to log
      */
     public void debug(String message) {
-        logger.debug(withPrefix(message));
+        if (slf4jAvailable) {
+            logger.debug(withPrefix(message));
+        } else {
+            System.out.println(loggerName + " DEBUG: " + withPrefix(message));
+        }
     }
 
     /**
@@ -118,6 +165,30 @@ public class SuperstreamLogger {
      * @param args The parameters for the message
      */
     public void debug(String message, Object... args) {
-        logger.debug(withPrefix(message), args);
+        if (slf4jAvailable) {
+            logger.debug(withPrefix(message), args);
+        } else {
+            System.out.println(loggerName + " DEBUG: " + withPrefix(formatMessage(message, args)));
+        }
+    }
+
+    private String formatMessage(String message, Object... args) {
+        // Simple implementation of string formatting for fallback mode
+        if (args == null || args.length == 0) {
+            return message;
+        }
+
+        String result = message;
+        for (Object arg : args) {
+            int idx = result.indexOf("{}");
+            if (idx >= 0) {
+                result = result.substring(0, idx) +
+                        (arg == null ? "null" : arg.toString()) +
+                        result.substring(idx + 2);
+            } else {
+                break;
+            }
+        }
+        return result;
     }
 }
