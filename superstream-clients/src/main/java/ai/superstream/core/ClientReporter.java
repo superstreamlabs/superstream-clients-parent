@@ -56,9 +56,20 @@ public class ClientReporter {
         properties.put(ProducerConfig.CLIENT_ID_CONFIG, "superstreamlib-client-reporter");
 
         properties.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "zstd");
-        properties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);  // 16KB batch size
-        properties.put(ProducerConfig.LINGER_MS_CONFIG, 1000);     // 500ms linger
+        Object batchSizeObj = originalConfiguration.get(ProducerConfig.BATCH_SIZE_CONFIG);
+        Object lingerMsObj = originalConfiguration.get(ProducerConfig.LINGER_MS_CONFIG);
 
+        if (batchSizeObj != null) {
+            properties.put(ProducerConfig.BATCH_SIZE_CONFIG, batchSizeObj.toString());
+        }else{
+            properties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
+        }
+
+        if (lingerMsObj != null) {
+            properties.put(ProducerConfig.LINGER_MS_CONFIG, lingerMsObj.toString());
+        }else{
+            properties.put(ProducerConfig.LINGER_MS_CONFIG, 1000);
+        }
         try (Producer<String, String> producer = new KafkaProducer<>(properties)) {
             // Create the client message
             ClientMessage message = new ClientMessage(

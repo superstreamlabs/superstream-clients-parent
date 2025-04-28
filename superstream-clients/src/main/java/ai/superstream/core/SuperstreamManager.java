@@ -74,8 +74,8 @@ public class SuperstreamManager {
 
     public static Map<String, Object> convertPropertiesToMap(Properties properties) {
         Map<String, Object> map = new HashMap<>();
-        for (String name : properties.stringPropertyNames()) {
-            map.put(name, properties.getProperty(name));
+        for (Map.Entry<Object, Object> entry : properties.entrySet()) {
+            map.put(String.valueOf(entry.getKey()), entry.getValue());
         }
         return map;
     }
