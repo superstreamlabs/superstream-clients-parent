@@ -61,6 +61,10 @@ import java.util.concurrent.ExecutionException;
  * - The ssl.endpoint.identification.algorithm property should not be disabled for Aiven clusters, as they provide valid certificates matching the hostname.
  *
  * Security Advice:
+ * - storepass is the password that protects the truststore (`truststore.jks`) and the keystore (`keystore.p12`).
+ * - In practice, truststore and keystore can have different passwords, but often the same password is used for simplicity.
+ * - The password must be at least 6 characters long and must match the password configured in your Java Kafka client.
+ * - You must configure these passwords properly in your Java Kafka client (`ssl.truststore.password`, `ssl.keystore.password`).
  * - Use strong passwords instead of "changeit" in production environments.
  * - Protect your truststore.jks and keystore.p12 files carefully; leaking them would compromise your SSL security.
  */
