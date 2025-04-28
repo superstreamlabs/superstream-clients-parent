@@ -12,7 +12,7 @@ import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 
 /**
- * Example application that uses the Kafka Clients API to produce messages.
+ * Example application that uses the Kafka Clients API to produce messages securely over SSL.
  * Run with:
  * java -javaagent:path/to/superstream-clients-1.0.0.jar -Dlogback.configurationFile=logback.xml -jar kafka-clients-example-1.0.0-jar-with-dependencies.jar
  *
@@ -27,8 +27,32 @@ import java.util.concurrent.ExecutionException;
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
  *
  * SSL Requirements:
- * - Truststore file (truststore.jks) containing the broker's CA certificate.
- * - Keystore file (keystore.p12) containing the client's certificate and private key.
+ * Step 1: Create the truststore (truststore.jks) containing the broker's CA certificate:
+ *
+ *     keytool -importcert \
+ *         -trustcacerts \
+ *         -alias aiven-ca \
+ *         -file /path/to/ca.pem \
+ *         -keystore /path/to/truststore.jks \
+ *         -storepass changeit
+ *
+ * Step 2: Create the keystore (keystore.p12) containing the client's certificate and private key:
+ *
+ *     openssl pkcs12 -export \
+ *         -in /path/to/client.cert.pem \
+ *         -inkey /path/to/client.pk8.pem \
+ *         -out /path/to/keystore.p12 \
+ *         -name kafka-client \
+ *         -passout pass:changeit
+ *
+ * Environment Variables:
+ * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: superstream-test-superstream-3591.k.aivencloud.com:18837)
+ * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
+ *
+ * Notes:
+ * - The truststore ensures that the client trusts the Kafka broker's certificate.
+ * - The keystore provides the client's authentication to the broker (mutual TLS).
+ * - If the client certificates are not signed by the broker’s CA, connection will fail.
  */
 public class AivenKafkaExample {
     private static final Logger logger = LoggerFactory.getLogger(AivenKafkaExample.class);
