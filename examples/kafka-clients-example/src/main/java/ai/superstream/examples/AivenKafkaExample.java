@@ -12,7 +12,8 @@ import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 
 /**
- * Example application that uses the Kafka Clients API to produce messages securely over SSL.
+ * Example application that uses the Kafka Clients API to produce messages securely over SSL (TLS).
+ *
  * Run with:
  * java -javaagent:path/to/superstream-clients-1.0.0.jar -Dlogback.configurationFile=logback.xml -jar kafka-clients-example-1.0.0-jar-with-dependencies.jar
  *
@@ -27,7 +28,15 @@ import java.util.concurrent.ExecutionException;
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
  *
  * SSL Requirements:
- * Step 1: Create the truststore (truststore.jks) containing the broker's CA certificate:
+ * To establish a secure SSL/TLS connection with Kafka brokers, you must provide **three files**:
+ *
+ *   - CA certificate (`ca.pem`) — the trusted certificate authority (from the Kafka provider)
+ *   - Client certificate (`client.cert.pem`) — identifies the client application
+ *   - Client private key (`client.pk8.pem`) — the private key paired with the client certificate
+ *
+ * SSL Setup Steps:
+ *
+ * Step 1: Create a Truststore (truststore.jks) containing the CA certificate:
  *
  *     keytool -importcert \
  *         -trustcacerts \
@@ -36,7 +45,7 @@ import java.util.concurrent.ExecutionException;
  *         -keystore /path/to/truststore.jks \
  *         -storepass changeit
  *
- * Step 2: Create the keystore (keystore.p12) containing the client's certificate and private key:
+ * Step 2: Create a Keystore (keystore.p12) containing the client certificate and private key:
  *
  *     openssl pkcs12 -export \
  *         -in /path/to/client.cert.pem \
@@ -45,25 +54,27 @@ import java.util.concurrent.ExecutionException;
  *         -name kafka-client \
  *         -passout pass:changeit
  *
- * Environment Variables:
- * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: superstream-test-superstream-3591.k.aivencloud.com:18837)
- * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
- *
  * Notes:
- * - The truststore ensures that the client trusts the Kafka broker's certificate.
- * - The keystore provides the client's authentication to the broker (mutual TLS).
- * - If the client certificates are not signed by the broker’s CA, connection will fail.
+ * - The Truststore (`truststore.jks`) ensures the client trusts the Kafka broker's SSL certificate.
+ * - The Keystore (`keystore.p12`) provides client authentication (mutual TLS) toward the broker.
+ * - Both Truststore and Keystore must be correctly configured for SSL handshake to succeed.
+ * - The ssl.endpoint.identification.algorithm property should not be disabled for Aiven clusters, as they provide valid certificates matching the hostname.
+ *
+ * Security Advice:
+ * - Use strong passwords instead of "changeit" in production environments.
+ * - Protect your truststore.jks and keystore.p12 files carefully; leaking them would compromise your SSL security.
  */
+
 public class AivenKafkaExample {
     private static final Logger logger = LoggerFactory.getLogger(AivenKafkaExample.class);
 
     // === Configuration Constants ===
     private static final String DEFAULT_BOOTSTRAP_SERVERS =
             "superstream-test-superstream-3591.k.aivencloud.com:18837";
-    private static final String TRUSTSTORE_LOCATION = "/Users/shohamroditi/superstream/superstream-clients-java/examples/kafka-clients-example/src/main/resources/crets/truststore.jks";
+    private static final String TRUSTSTORE_LOCATION = "/superstream-clients-java/examples/kafka-clients-example/src/main/resources/crets/truststore.jks";
     private static final String TRUSTSTORE_PASSWORD = "changeit";
     private static final String KEYSTORE_KEY_PATH =
-            "/Users/shohamroditi/superstream/superstream-clients-java/examples/kafka-clients-example/src/main/resources/crets/keystore.p12";
+            "/superstream-clients-java/examples/kafka-clients-example/src/main/resources/crets/keystore.p12";
     private static final String SECURITY_PROTOCOL = "SSL";
     private static final String TRUSTSTORE_TYPE = "PKCS12";
 
@@ -96,8 +107,6 @@ public class AivenKafkaExample {
         props.put("ssl.keystore.location",KEYSTORE_KEY_PATH );
         props.put("ssl.keystore.password", TRUSTSTORE_PASSWORD);
         props.put("ssl.keystore.type", TRUSTSTORE_TYPE);
-        props.put("ssl.endpoint.identification.algorithm", "");
-
         // Set some basic configuration
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
