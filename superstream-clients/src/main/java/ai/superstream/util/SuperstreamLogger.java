@@ -1,18 +1,30 @@
 package ai.superstream.util;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
- * Custom logger for the Superstream library.
- * All logs will have the "superstream" prefix.
+ * Custom logger for the Superstream library that falls back to System.out/System.err
  */
 public class SuperstreamLogger {
     private static final String PREFIX = "superstream";
-    private final Logger logger;
+    private final String className;
+    // Flag to control debug logging - default to false to hide debug logs
+    private static boolean debugEnabled = false;
+
+    static {
+        // Check if debug logging is enabled via system property or environment variable
+        String debugFlag = System.getProperty("superstream.debug");
+        if (debugFlag == null) {
+            debugFlag = System.getenv("SUPERSTREAM_DEBUG");
+        }
+        debugEnabled = "true".equalsIgnoreCase(debugFlag);
+    }
+
+    // Enable or disable debug logging programmatically
+    public static void setDebugEnabled(boolean enabled) {
+        debugEnabled = enabled;
+    }
 
     private SuperstreamLogger(Class<?> clazz) {
-        this.logger = LoggerFactory.getLogger(clazz);
+        this.className = clazz.getSimpleName();
     }
 
     /**
@@ -36,88 +48,103 @@ public class SuperstreamLogger {
     }
 
     /**
-     * Log an info message with the superstream prefix.
-     *
-     * @param message The message to log
+     * Log an info message.
      */
     public void info(String message) {
-        logger.info(withPrefix(message));
+        System.out.println(formatLogMessage("INFO", message));
     }
 
     /**
-     * Log an info message with parameters and the superstream prefix.
-     *
-     * @param message The message to log
-     * @param args The parameters for the message
+     * Log an info message with parameters.
      */
     public void info(String message, Object... args) {
-        logger.info(withPrefix(message), args);
+        System.out.println(formatLogMessage("INFO", formatArgs(message, args)));
     }
 
     /**
-     * Log a warning message with the superstream prefix.
-     *
-     * @param message The message to log
+     * Log a warning message.
      */
     public void warn(String message) {
-        logger.warn(withPrefix(message));
+        System.out.println(formatLogMessage("WARN", message));
     }
 
     /**
-     * Log a warning message with parameters and the superstream prefix.
-     *
-     * @param message The message to log
-     * @param args The parameters for the message
+     * Log a warning message with parameters.
      */
     public void warn(String message, Object... args) {
-        logger.warn(withPrefix(message), args);
+        System.out.println(formatLogMessage("WARN", formatArgs(message, args)));
     }
 
     /**
-     * Log an error message with the superstream prefix.
-     *
-     * @param message The message to log
+     * Log an error message.
      */
     public void error(String message) {
-        logger.error(withPrefix(message));
+        System.err.println(formatLogMessage("ERROR", message));
     }
 
     /**
-     * Log an error message with parameters and the superstream prefix.
-     *
-     * @param message The message to log
-     * @param args The parameters for the message
+     * Log an error message with parameters.
      */
     public void error(String message, Object... args) {
-        logger.error(withPrefix(message), args);
+        System.err.println(formatLogMessage("ERROR", formatArgs(message, args)));
     }
 
     /**
-     * Log an error message with an exception and the superstream prefix.
-     *
-     * @param message The message to log
-     * @param throwable The exception to log
+     * Log an error message with an exception.
      */
     public void error(String message, Throwable throwable) {
-        logger.error(withPrefix(message), throwable);
+        System.err.println(formatLogMessage("ERROR", message));
+        throwable.printStackTrace(System.err);
     }
 
     /**
-     * Log a debug message with the superstream prefix.
-     *
-     * @param message The message to log
+     * Log a debug message.
      */
     public void debug(String message) {
-        logger.debug(withPrefix(message));
+        if (debugEnabled) {
+            System.out.println(formatLogMessage("DEBUG", message));
+        }
     }
 
     /**
-     * Log a debug message with parameters and the superstream prefix.
-     *
-     * @param message The message to log
-     * @param args The parameters for the message
+     * Log a debug message with parameters.
      */
     public void debug(String message, Object... args) {
-        logger.debug(withPrefix(message), args);
+        if (debugEnabled) {
+            System.out.println(formatLogMessage("DEBUG", formatArgs(message, args)));
+        }
+    }
+
+    public static boolean isDebugEnabled() {
+        return debugEnabled;
+    }
+
+    /**
+     * Format a log message with the Superstream prefix and class name.
+     */
+    private String formatLogMessage(String level, String message) {
+        return String.format("[%s] %s %s: %s", PREFIX, level, className, message);
+    }
+
+    /**
+     * Replace placeholder {} with actual values.
+     */
+    private String formatArgs(String message, Object... args) {
+        if (args == null || args.length == 0) {
+            return message;
+        }
+
+        String result = message;
+        for (Object arg : args) {
+            int idx = result.indexOf("{}");
+            if (idx >= 0) {
+                result = result.substring(0, idx) +
+                        (arg == null ? "null" : arg.toString()) +
+                        result.substring(idx + 2);
+            } else {
+                break;
+            }
+        }
+        return result;
     }
 }

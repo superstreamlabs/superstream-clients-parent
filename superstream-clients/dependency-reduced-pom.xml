@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-  <parent>
-    <artifactId>superstream-clients-java</artifactId>
-    <groupId>ai.superstream</groupId>
-    <version>1.0.0</version>
-  </parent>
   <modelVersion>4.0.0</modelVersion>
+  <groupId>ai.superstream</groupId>
   <artifactId>superstream-clients</artifactId>
   <name>Superstream Kafka Client Optimizer</name>
+  <version>1.0.4</version>
   <description>A Java library that dynamically optimizes Kafka client configuration based on recommendations</description>
   <url>https://github.com/superstreamlabs/superstream-clients-java</url>
+  <developers>
+    <developer>
+      <id>superstreamlabs</id>
+      <name>Superstream Labs</name>
+      <email>support@superstream.ai</email>
+    </developer>
+  </developers>
   <licenses>
     <license>
       <name>The Apache License, Version 2.0</name>
@@ -26,6 +30,13 @@
       <resource>
         <filtering>true</filtering>
         <directory>src/main/resources</directory>
+      </resource>
+      <resource>
+        <targetPath>.</targetPath>
+        <directory>../</directory>
+        <includes>
+          <include>README.md</include>
+        </includes>
       </resource>
     </resources>
     <plugins>
@@ -112,15 +123,55 @@
         </executions>
       </plugin>
       <plugin>
-        <groupId>org.sonatype.plugins</groupId>
-        <artifactId>nexus-staging-maven-plugin</artifactId>
-        <version>1.6.8</version>
-        <extensions>true</extensions>
-        <configuration>
-          <serverId>ossrh</serverId>
-          <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
-          <autoReleaseAfterClose>true</autoReleaseAfterClose>
-        </configuration>
+        <artifactId>maven-install-plugin</artifactId>
+        <version>2.5.2</version>
+      </plugin>
+      <plugin>
+        <groupId>org.sonatype.central</groupId>
+        <artifactId>central-publishing-maven-plugin</artifactId>
+        <version>0.4.0</version>
+        <executions>
+          <execution>
+            <phase>deploy</phase>
+            <goals>
+              <goal>publish</goal>
+            </goals>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <tokenAuth>true</tokenAuth>
+              <deploymentName>${project.artifactId}-${project.version}</deploymentName>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <version>3.1.1</version>
+        <executions>
+          <execution>
+            <id>default-deploy</id>
+            <phase>none</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-gpg-plugin</artifactId>
+        <version>3.2.3</version>
+        <executions>
+          <execution>
+            <id>sign-artifacts</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>sign</goal>
+            </goals>
+            <configuration>
+              <keyname>A5F0A659</keyname>
+              <gpgArguments>
+                <arg>--batch</arg>
+              </gpgArguments>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
@@ -200,13 +251,10 @@
   </dependencies>
   <distributionManagement>
     <repository>
-      <id>ossrh</id>
-      <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+      <id>ai.superstream</id>
+      <name>superstream</name>
+      <url>https://central.sonatype.com</url>
     </repository>
-    <snapshotRepository>
-      <id>ossrh</id>
-      <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
-    </snapshotRepository>
   </distributionManagement>
   <properties>
     <bytebuddy.version>1.14.9</bytebuddy.version>
@@ -214,7 +262,6 @@
     <jackson.version>2.14.2</jackson.version>
     <kafka.version>3.3.2</kafka.version>
     <maven.compiler.target>11</maven.compiler.target>
-    <slf4j.version>1.7.36</slf4j.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 </project>
