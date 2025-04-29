@@ -28,16 +28,15 @@ import java.util.concurrent.ExecutionException;
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
  *
  * SSL Requirements:
- * To establish a secure SSL/TLS connection with Kafka brokers, you must provide **three files**:
+ * To establish a secure SSL/TLS connection with Kafka brokers, you must generate and configure:
  *
  *   - CA certificate (`ca.pem`) — the trusted certificate authority (from the Kafka provider)
  *   - Client certificate (`client.cert.pem`) — identifies the client application
  *   - Client private key (`client.pk8.pem`) — the private key paired with the client certificate
  *
- * SSL Setup Steps:
+ * Steps to prepare truststore and keystore:
  *
  * Step 1: Create a Truststore (truststore.jks) containing the CA certificate:
- *
  *     keytool -importcert \
  *         -trustcacerts \
  *         -alias aiven-ca \
@@ -46,7 +45,6 @@ import java.util.concurrent.ExecutionException;
  *         -storepass changeit
  *
  * Step 2: Create a Keystore (keystore.p12) containing the client certificate and private key:
- *
  *     openssl pkcs12 -export \
  *         -in /path/to/client.cert.pem \
  *         -inkey /path/to/client.pk8.pem \
@@ -58,11 +56,8 @@ import java.util.concurrent.ExecutionException;
  * - The Truststore (`truststore.jks`) ensures the client trusts the Kafka broker's SSL certificate.
  * - The Keystore (`keystore.p12`) provides client authentication (mutual TLS) toward the broker.
  * - Both Truststore and Keystore must be correctly configured for SSL handshake to succeed.
- * - The ssl.endpoint.identification.algorithm property should not be disabled for Aiven clusters, as they provide valid certificates matching the hostname.
  *
  * Security Advice:
- * - storepass is the password that protects the truststore (`truststore.jks`) and the keystore (`keystore.p12`).
- * - In practice, truststore and keystore can have different passwords, but often the same password is used for simplicity.
  * - The password must be at least 6 characters long and must match the password configured in your Java Kafka client.
  * - You must configure these passwords properly in your Java Kafka client (`ssl.truststore.password`, `ssl.keystore.password`).
  * - Use strong passwords instead of "changeit" in production environments.
@@ -75,16 +70,19 @@ public class AivenKafkaExample {
     // === Configuration Constants ===
     private static final String DEFAULT_BOOTSTRAP_SERVERS =
             "superstream-test-superstream-3591.k.aivencloud.com:18837";
-    private static final String TRUSTSTORE_LOCATION = "/superstream-clients-java/examples/kafka-clients-example/src/main/resources/crets/truststore.jks";
+    // Replace with full absolute path to your generated truststore.jks
+    private static final String TRUSTSTORE_LOCATION = "/absolute/path/to/truststore.jks";
+    // The password must be at least 6 characters long and must match the password configured in your Java Kafka client.
     private static final String TRUSTSTORE_PASSWORD = "changeit";
-    private static final String KEYSTORE_KEY_PATH =
-            "/superstream-clients-java/examples/kafka-clients-example/src/main/resources/crets/keystore.p12";
+    // Replace with full absolute path to your generated keystore.p12
+    private static final String KEYSTORE_KEY_PATH = "/absolute/path/to/keystore.p12";
     private static final String SECURITY_PROTOCOL = "SSL";
-    private static final String TRUSTSTORE_TYPE = "PKCS12";
+    private static final String TRUSTSTORE_TYPE = "JKS";
+    private static  final String KEYSTORE_TYPE = "PKCS12";
 
     private static final String CLIENT_ID = "superstream-example-producer";
     private static final String COMPRESSION_TYPE = "gzip";
-    private static final String BATCH_SIZE = "16384";
+    private static final Integer BATCH_SIZE = 16384;
 
     private static final String TOPIC_NAME = "example-topic";
     private static final String MESSAGE_KEY = "test-key";
@@ -110,7 +108,7 @@ public class AivenKafkaExample {
         props.put("ssl.truststore.type", TRUSTSTORE_TYPE);
         props.put("ssl.keystore.location",KEYSTORE_KEY_PATH );
         props.put("ssl.keystore.password", TRUSTSTORE_PASSWORD);
-        props.put("ssl.keystore.type", TRUSTSTORE_TYPE);
+        props.put("ssl.keystore.type", KEYSTORE_TYPE);
         // Set some basic configuration
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);

@@ -45,7 +45,7 @@ public class MskKafkaExample {
 
     private static final String CLIENT_ID = "superstream-example-producer";
     private static final String COMPRESSION_TYPE = "gzip";
-    private static final String BATCH_SIZE = "16384";
+    private static final Integer BATCH_SIZE = 16384;
 
     private static final String TOPIC_NAME = "example-topic";
     private static final String MESSAGE_KEY = "test-key";
