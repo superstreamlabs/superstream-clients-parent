@@ -57,7 +57,7 @@ public class ClientReporter {
 
         properties.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "zstd");
         properties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);  // 16KB batch size
-        properties.put(ProducerConfig.LINGER_MS_CONFIG, 1000);     // 500ms linger
+        properties.put(ProducerConfig.LINGER_MS_CONFIG, 1000);
 
         try (Producer<String, String> producer = new KafkaProducer<>(properties)) {
             // Create the client message
