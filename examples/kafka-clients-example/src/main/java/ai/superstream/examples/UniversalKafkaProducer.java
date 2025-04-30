@@ -88,6 +88,10 @@ public class UniversalKafkaProducer {
             // Get producer configuration
             logger.info("Creating producer configuration");
             Properties producerProps = createProducerConfig(configProps);
+            if (producerProps == null) {
+                logger.error("Failed to create producer configuration. Exiting.");
+                return;
+            }
 
             // Get topic and message details
             String topicName = configProps.getProperty("TOPIC_NAME", DEFAULT_TOPIC_NAME);
@@ -235,19 +239,31 @@ public class UniversalKafkaProducer {
     private static Properties createProducerConfig(Properties configProps) {
         Properties producerProps = new Properties();
 
+        if (configProps == null) {
+            logger.error("Configuration properties are null, cannot create producer config");
+            return null;
+        }
+
+        // Log all available keys to help with debugging
+        logger.info("Available configuration keys:");
+        configProps.stringPropertyNames().forEach(key -> logger.info("  {}", key));
+
         // Required configurations
         String bootstrapServers = configProps.getProperty("BOOTSTRAP_SERVERS");
         if (bootstrapServers == null || bootstrapServers.isEmpty()) {
             logger.error("BOOTSTRAP_SERVERS is not defined in configuration");
-            throw new IllegalArgumentException("BOOTSTRAP_SERVERS is required");
+            return null;
         }
 
+        logger.info("Using bootstrap servers: {}", bootstrapServers);
         producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
         // Client ID
-        producerProps.put("client.id", configProps.getProperty("CLIENT_ID", DEFAULT_CLIENT_ID));
+        String clientId = configProps.getProperty("CLIENT_ID", DEFAULT_CLIENT_ID);
+        producerProps.put("client.id", clientId);
+        logger.info("Using client ID: {}", clientId);
 
         // Common producer configurations
         if (configProps.containsKey("COMPRESSION_TYPE")) {
