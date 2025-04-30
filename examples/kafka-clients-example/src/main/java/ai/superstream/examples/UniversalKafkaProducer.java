@@ -375,55 +375,66 @@ public class UniversalKafkaProducer {
                     // For AWS MSK with IAM
                     debug("Configuring AWS MSK IAM authentication");
 
-                    // First check if explicit credentials are provided
-                    String awsAccessKey = configProps.getProperty("AWS_ACCESS_KEY_ID");
-                    String awsSecretKey = configProps.getProperty("AWS_SECRET_ACCESS_KEY");
+                    // When using AWS MSK IAM, the SASL_USERNAME is the AWS access key and 
+                    // SASL_PASSWORD is the AWS secret key
+                    String awsAccessKey = configProps.getProperty("SASL_USERNAME");
+                    String awsSecretKey = configProps.getProperty("SASL_PASSWORD");
 
-                    if (awsAccessKey != null && awsSecretKey != null) {
+                    if (awsAccessKey != null && !awsAccessKey.isEmpty()
+                            && awsSecretKey != null && !awsSecretKey.isEmpty()) {
                         info("Using provided AWS credentials for IAM authentication");
 
-                        // Set as system properties for the AWS SDK
+                        // Direct AWS SDK system properties for credentials
                         System.setProperty("aws.accessKeyId", awsAccessKey);
                         System.setProperty("aws.secretKey", awsSecretKey);
 
-                        // Also set as environment variables for the AWS SDK (backup method)
-                        try {
-                            java.lang.reflect.Field field = System.class.getDeclaredField("env");
-                            field.setAccessible(true);
-                            @SuppressWarnings("unchecked")
-                            java.util.Map<String, String> env = (java.util.Map<String, String>) field.get(null);
-                            java.util.Map<String, String> writableEnv = new java.util.HashMap<>(env);
-                            writableEnv.put("AWS_ACCESS_KEY_ID", awsAccessKey);
-                            writableEnv.put("AWS_SECRET_ACCESS_KEY", awsSecretKey);
-                            field.set(null, writableEnv);
-                        } catch (Exception e) {
-                            warn("Could not set AWS environment variables: {}", e.getMessage());
-                        }
-                    } else {
-                        warn("No AWS credentials provided for AWS_MSK_IAM mechanism. Will attempt to use instance profile/environment.");
-                        // Check if credentials are available in the environment
-                        boolean hasEnvCreds = System.getenv("AWS_ACCESS_KEY_ID") != null
-                                && System.getenv("AWS_SECRET_ACCESS_KEY") != null;
+                        // Also set as environment variables for the AWS SDK
+                        setenv("AWS_ACCESS_KEY_ID", awsAccessKey);
+                        setenv("AWS_SECRET_ACCESS_KEY", awsSecretKey);
 
-                        if (!hasEnvCreds) {
-                            warn("No AWS credentials found in environment. This might fail if not running in an AWS environment with instance profile.");
+                        debug("AWS credentials set from SASL_USERNAME/PASSWORD");
+                    } else {
+                        // Try alternative property names
+                        awsAccessKey = configProps.getProperty("AWS_ACCESS_KEY_ID");
+                        awsSecretKey = configProps.getProperty("AWS_SECRET_ACCESS_KEY");
+
+                        if (awsAccessKey != null && !awsAccessKey.isEmpty()
+                                && awsSecretKey != null && !awsSecretKey.isEmpty()) {
+                            info("Using provided AWS credentials from AWS_* properties");
+
+                            // Direct AWS SDK system properties for credentials
+                            System.setProperty("aws.accessKeyId", awsAccessKey);
+                            System.setProperty("aws.secretKey", awsSecretKey);
+
+                            // Also set as environment variables for the AWS SDK
+                            setenv("AWS_ACCESS_KEY_ID", awsAccessKey);
+                            setenv("AWS_SECRET_ACCESS_KEY", awsSecretKey);
+
+                            debug("AWS credentials set from AWS_* properties");
                         } else {
-                            debug("AWS credentials found in environment variables");
+                            warn("No AWS credentials provided. Authentication will likely fail unless running in an AWS environment with instance profile.");
                         }
                     }
 
-                    // MSK IAM configuration
+                    // Check if credentials are available in the environment
+                    if (System.getenv("AWS_ACCESS_KEY_ID") != null
+                            && System.getenv("AWS_SECRET_ACCESS_KEY") != null) {
+                        debug("AWS credentials found in environment variables");
+                    }
+
+                    // Add AWS Region if available
+                    String awsRegion = configProps.getProperty("AWS_REGION");
+                    if (awsRegion != null && !awsRegion.isEmpty()) {
+                        debug("Setting AWS region: {}", awsRegion);
+                        System.setProperty("aws.region", awsRegion);
+                    }
+
+                    // Standard MSK IAM configuration
                     producerProps.put("sasl.jaas.config", "software.amazon.msk.auth.iam.IAMLoginModule required;");
                     producerProps.put("sasl.client.callback.handler.class",
                             "software.amazon.msk.auth.iam.IAMClientCallbackHandler");
 
-                    // Region configuration (optional but recommended)
-                    String awsRegion = configProps.getProperty("AWS_REGION");
-                    if (awsRegion != null && !awsRegion.isEmpty()) {
-                        System.setProperty("aws.region", awsRegion);
-                    }
-
-                    // Add AWS SDK logging configuration
+                    // Enable AWS SDK logging if in debug mode
                     if (DEBUG_MODE) {
                         System.setProperty("org.apache.commons.logging.Log",
                                 "org.apache.commons.logging.impl.SimpleLog");
@@ -574,6 +585,21 @@ public class UniversalKafkaProducer {
             TOTAL_ERRORS.incrementAndGet();
         } else {
             TOTAL_ERRORS.incrementAndGet();
+        }
+    }
+
+    // Add a helper method to set environment variables, since System.setenv() doesn't exist
+    private static void setenv(String key, String value) {
+        try {
+            java.lang.reflect.Field field = System.class.getDeclaredField("env");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, String> env = (java.util.Map<String, String>) field.get(null);
+            java.util.Map<String, String> writableEnv = new java.util.HashMap<>(env);
+            writableEnv.put(key, value);
+            field.set(null, writableEnv);
+        } catch (Exception e) {
+            warn("Could not set environment variable {}: {}", key, e.getMessage());
         }
     }
 }
