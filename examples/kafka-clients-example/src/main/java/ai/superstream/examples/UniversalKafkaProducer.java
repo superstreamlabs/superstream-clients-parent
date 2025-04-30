@@ -27,6 +27,9 @@ import org.slf4j.LoggerFactory;
  * -Dlogback.configurationFile=logback.xml -jar
  * kafka-clients-example-1.0.0-jar-with-dependencies.jar
  *
+ * Environment variables: - DEBUG_CLIENTS: Set to "true" to enable verbose
+ * logging (default: false)
+ *
  * Prerequisites: 1. A Kafka cluster configuration in /tmp/cluster.conf.env 2.
  * Topics required: - superstream.metadata_v1 - with a configuration message -
  * superstream.clients - for client reports - example-topic (or as configured) -
@@ -35,6 +38,10 @@ import org.slf4j.LoggerFactory;
 public class UniversalKafkaProducer {
 
     private static final Logger logger = LoggerFactory.getLogger(UniversalKafkaProducer.class);
+
+    // Logging control flag - checks DEBUG_CLIENTS environment variable
+    private static final boolean DEBUG_MODE = Boolean.parseBoolean(
+            System.getenv().getOrDefault("DEBUG_CLIENTS", "false"));
 
     // Default configuration file location
     private static final String CONFIG_FILE_PATH = "/tmp/cluster.conf.env";
@@ -51,8 +58,12 @@ public class UniversalKafkaProducer {
     // Whether to run indefinitely
     private static final boolean RUN_INDEFINITELY = true;
 
+    // Message counter for stats
+    private static final AtomicInteger TOTAL_MESSAGES_SENT = new AtomicInteger(0);
+    private static final AtomicInteger TOTAL_ERRORS = new AtomicInteger(0);
+
     public static void main(String[] args) {
-        logger.info("Starting Universal Kafka Producer");
+        info("Starting Universal Kafka Producer" + (DEBUG_MODE ? " in DEBUG mode" : ""));
         logger.info("JVM version: {}", System.getProperty("java.version"));
         logger.info("Available processors: {}", Runtime.getRuntime().availableProcessors());
         logger.info("Max memory: {} MB", Runtime.getRuntime().maxMemory() / (1024 * 1024));
@@ -74,14 +85,14 @@ public class UniversalKafkaProducer {
 
             // Check if config file exists
             if (!Files.exists(Paths.get(CONFIG_FILE_PATH))) {
-                logger.error("Configuration file not found at: {}", CONFIG_FILE_PATH);
+                error("Configuration file not found at: {}", CONFIG_FILE_PATH);
                 return;
             }
 
             // Load configuration
             Properties configProps = loadConfiguration();
             if (configProps == null) {
-                logger.error("Failed to load configuration. Exiting.");
+                error("Failed to load configuration. Exiting.");
                 return;
             }
 
@@ -89,7 +100,7 @@ public class UniversalKafkaProducer {
             logger.info("Creating producer configuration");
             Properties producerProps = createProducerConfig(configProps);
             if (producerProps == null) {
-                logger.error("Failed to create producer configuration. Exiting.");
+                error("Failed to create producer configuration. Exiting.");
                 return;
             }
 
@@ -109,7 +120,7 @@ public class UniversalKafkaProducer {
 
             try (Producer<String, String> producer = new KafkaProducer<>(producerProps)) {
                 // Log actual configuration after potential Superstream optimization
-                logger.info("Producer configuration after Superstream optimization:");
+                debug("Producer configuration after Superstream optimization:");
                 logActualProducerConfig(producer);
 
                 // Send messages
@@ -139,19 +150,30 @@ public class UniversalKafkaProducer {
         // Schedule periodic message sending
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
+        // Also schedule periodic status reports
+        ScheduledExecutorService statsReporter = Executors.newScheduledThreadPool(1);
+        statsReporter.scheduleAtFixedRate(() -> {
+            info("Status: {} messages sent successfully, {} errors occurred",
+                    TOTAL_MESSAGES_SENT.get(), TOTAL_ERRORS.get());
+        }, 60, 60, TimeUnit.SECONDS);
+
         Runnable messageSender = () -> {
             try {
                 String message = messageValue + " #" + counter.incrementAndGet();
-                logger.info("Sending scheduled message #{}", counter.get());
+                debug("Sending scheduled message #{}", counter.get());
                 producer.send(new ProducerRecord<>(topicName, messageKey, message)).get();
-                logger.info("Message #{} sent successfully", counter.get());
+                TOTAL_MESSAGES_SENT.incrementAndGet();
+                debug("Message #{} sent successfully", counter.get());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                logger.error("Interrupted while sending scheduled message", e);
+                error("Interrupted while sending scheduled message", e);
+                TOTAL_ERRORS.incrementAndGet();
             } catch (ExecutionException e) {
-                logger.error("Error sending scheduled message: {}", e.getMessage(), e);
+                error("Error sending scheduled message: {}", e.getMessage(), e);
+                TOTAL_ERRORS.incrementAndGet();
             } catch (Exception e) {
-                logger.error("Unexpected error in scheduled task", e);
+                error("Unexpected error in scheduled task", e);
+                TOTAL_ERRORS.incrementAndGet();
             }
         };
 
@@ -162,15 +184,22 @@ public class UniversalKafkaProducer {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutting down producer...");
             scheduler.shutdown();
+            statsReporter.shutdown();
+
             try {
                 if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
                     logger.warn("Scheduler did not terminate in time");
+                }
+                if (!statsReporter.awaitTermination(5, TimeUnit.SECONDS)) {
+                    logger.warn("Stats reporter did not terminate in time");
                 }
             } catch (InterruptedException e) {
                 logger.error("Shutdown interrupted", e);
                 Thread.currentThread().interrupt();
             }
-            logger.info("Producer shutdown complete");
+
+            logger.info("Producer shutdown complete. Final stats: {} messages sent, {} errors occurred",
+                    TOTAL_MESSAGES_SENT.get(), TOTAL_ERRORS.get());
         }));
 
         logger.info("Producer is running indefinitely. Press Ctrl+C to stop.");
@@ -190,20 +219,24 @@ public class UniversalKafkaProducer {
     private static void sendTestMessage(Producer<String, String> producer, String topicName,
             String messageKey, String messageValue) {
         try {
-            logger.info("Sending message to topic {}: {}", topicName, messageValue);
+            debug("Sending message to topic {}: {}", topicName, messageValue);
             producer.send(new ProducerRecord<>(topicName, messageKey, messageValue)).get();
-            logger.info("Message sent successfully!");
+            TOTAL_MESSAGES_SENT.incrementAndGet();
+            debug("Message sent successfully!");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            logger.error("Interrupted while sending message", e);
+            error("Interrupted while sending message", e);
+            TOTAL_ERRORS.incrementAndGet();
         } catch (ExecutionException e) {
-            logger.error("Error sending message: {}", e.getMessage());
+            error("Error sending message: {}", e.getMessage());
+            TOTAL_ERRORS.incrementAndGet();
             Throwable cause = e.getCause();
             if (cause != null) {
-                logger.error("Caused by: {}", cause.getMessage());
+                error("Caused by: {}", cause.getMessage());
             }
         } catch (Exception e) {
-            logger.error("Unexpected error sending message", e);
+            error("Unexpected error sending message", e);
+            TOTAL_ERRORS.incrementAndGet();
         }
     }
 
@@ -215,8 +248,8 @@ public class UniversalKafkaProducer {
 
         try (FileInputStream fis = new FileInputStream(CONFIG_FILE_PATH)) {
             props.load(fis);
-            logger.info("Loaded configuration from {}", CONFIG_FILE_PATH);
-            logger.info("Configuration contains {} properties", props.size());
+            debug("Loaded configuration from {}", CONFIG_FILE_PATH);
+            debug("Configuration contains {} properties", props.size());
 
             // Log non-sensitive properties
             props.stringPropertyNames().stream()
@@ -225,7 +258,7 @@ public class UniversalKafkaProducer {
 
             return props;
         } catch (IOException e) {
-            logger.error("Failed to load configuration from {}: {}", CONFIG_FILE_PATH, e.getMessage());
+            error("Failed to load configuration from {}: {}", CONFIG_FILE_PATH, e.getMessage());
             return null;
         }
     }
@@ -237,7 +270,7 @@ public class UniversalKafkaProducer {
         Properties producerProps = new Properties();
 
         if (configProps == null) {
-            logger.error("Configuration properties are null, cannot create producer config");
+            error("Configuration properties are null, cannot create producer config");
             return null;
         }
 
@@ -248,11 +281,11 @@ public class UniversalKafkaProducer {
         // Required configurations
         String bootstrapServers = configProps.getProperty("BOOTSTRAP_SERVERS");
         if (bootstrapServers == null || bootstrapServers.isEmpty()) {
-            logger.error("BOOTSTRAP_SERVERS is not defined in configuration");
+            error("BOOTSTRAP_SERVERS is not defined in configuration");
             return null;
         }
 
-        logger.info("Using bootstrap servers: {}", bootstrapServers);
+        debug("Using bootstrap servers: {}", bootstrapServers);
         producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -266,25 +299,25 @@ public class UniversalKafkaProducer {
         if (configProps.containsKey("COMPRESSION_TYPE")) {
             try {
                 producerProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, configProps.getProperty("COMPRESSION_TYPE"));
-                logger.info("Using compression: {}", configProps.getProperty("COMPRESSION_TYPE"));
+                debug("Using compression: {}", configProps.getProperty("COMPRESSION_TYPE"));
             } catch (NumberFormatException e) {
-                logger.warn("Invalid COMPRESSION_TYPE value: {}", configProps.getProperty("COMPRESSION_TYPE"));
+                warn("Invalid COMPRESSION_TYPE value: {}", configProps.getProperty("COMPRESSION_TYPE"));
             }
         }
 
         if (configProps.containsKey("BATCH_SIZE")) {
             try {
                 producerProps.put(ProducerConfig.BATCH_SIZE_CONFIG, Integer.parseInt(configProps.getProperty("BATCH_SIZE")));
-                logger.info("Using batch size: {}", configProps.getProperty("BATCH_SIZE"));
+                debug("Using batch size: {}", configProps.getProperty("BATCH_SIZE"));
             } catch (NumberFormatException e) {
-                logger.warn("Invalid BATCH_SIZE value: {}", configProps.getProperty("BATCH_SIZE"));
+                warn("Invalid BATCH_SIZE value: {}", configProps.getProperty("BATCH_SIZE"));
             }
         }
 
         // Handle security configuration based on SECURITY_PROTOCOL
         String securityProtocol = configProps.getProperty("SECURITY_PROTOCOL");
         if (securityProtocol != null) {
-            logger.info("Configuring security with protocol: {}", securityProtocol);
+            debug("Configuring security with protocol: {}", securityProtocol);
             producerProps.put("security.protocol", securityProtocol);
 
             // Configure SASL if needed
@@ -318,7 +351,7 @@ public class UniversalKafkaProducer {
         // Get SASL mechanism
         String saslMechanism = configProps.getProperty("SASL_MECHANISM");
         if (saslMechanism != null) {
-            logger.info("Configuring SASL with mechanism: {}", saslMechanism);
+            debug("Configuring SASL with mechanism: {}", saslMechanism);
             producerProps.put("sasl.mechanism", saslMechanism);
 
             // Configure JAAS based on mechanism
@@ -328,19 +361,19 @@ public class UniversalKafkaProducer {
                     String username = configProps.getProperty("SASL_USERNAME");
                     String password = configProps.getProperty("SASL_PASSWORD");
                     if (username != null && password != null) {
-                        logger.info("Configuring PLAIN authentication");
+                        debug("Configuring PLAIN authentication");
                         producerProps.put("sasl.jaas.config", String.format(
                                 "org.apache.kafka.common.security.plain.PlainLoginModule required username='%s' password='%s';",
                                 username, password
                         ));
                     } else {
-                        logger.error("SASL_USERNAME and/or SASL_PASSWORD not provided for PLAIN mechanism");
+                        error("SASL_USERNAME and/or SASL_PASSWORD not provided for PLAIN mechanism");
                     }
                     break;
 
                 case "AWS_MSK_IAM":
                     // For AWS MSK with IAM
-                    logger.info("Configuring AWS MSK IAM authentication");
+                    debug("Configuring AWS MSK IAM authentication");
                     producerProps.put("sasl.jaas.config", "software.amazon.msk.auth.iam.IAMLoginModule required;");
                     producerProps.put("sasl.client.callback.handler.class",
                             "software.amazon.msk.auth.iam.IAMClientCallbackHandler");
@@ -349,11 +382,11 @@ public class UniversalKafkaProducer {
                     String awsAccessKey = configProps.getProperty("AWS_ACCESS_KEY_ID");
                     String awsSecretKey = configProps.getProperty("AWS_SECRET_ACCESS_KEY");
                     if (awsAccessKey != null && awsSecretKey != null) {
-                        logger.info("Using provided AWS credentials");
+                        debug("Using provided AWS credentials");
                         System.setProperty("aws.accessKeyId", awsAccessKey);
                         System.setProperty("aws.secretKey", awsSecretKey);
                     } else {
-                        logger.info("Using instance profile for AWS credentials");
+                        debug("Using instance profile for AWS credentials");
                     }
                     break;
 
@@ -363,7 +396,7 @@ public class UniversalKafkaProducer {
                     if (jaasConfig != null) {
                         producerProps.put("sasl.jaas.config", jaasConfig);
                     } else {
-                        logger.warn("No SASL_JAAS_CONFIG provided for mechanism: {}", saslMechanism);
+                        warn("No SASL_JAAS_CONFIG provided for mechanism: {}", saslMechanism);
                     }
 
                     String callbackHandler = configProps.getProperty("SASL_CALLBACK_HANDLER");
@@ -372,7 +405,7 @@ public class UniversalKafkaProducer {
                     }
             }
         } else {
-            logger.error("SASL_MECHANISM not provided for SASL authentication");
+            error("SASL_MECHANISM not provided for SASL authentication");
         }
     }
 
@@ -380,7 +413,7 @@ public class UniversalKafkaProducer {
      * Configures SSL/TLS settings
      */
     private static void configureSsl(Properties producerProps, Properties configProps) {
-        logger.info("Configuring SSL/TLS settings");
+        debug("Configuring SSL/TLS settings");
 
         // Truststore settings
         String truststoreLocation = configProps.getProperty("SSL_TRUSTSTORE_LOCATION");
@@ -388,22 +421,22 @@ public class UniversalKafkaProducer {
         String truststoreType = configProps.getProperty("SSL_TRUSTSTORE_TYPE", "JKS");
 
         if (truststoreLocation != null) {
-            logger.info("Setting SSL truststore: {}", truststoreLocation);
+            debug("Setting SSL truststore: {}", truststoreLocation);
 
             // Check if truststore file exists
             if (!Files.exists(Paths.get(truststoreLocation))) {
-                logger.error("Truststore file does not exist: {}", truststoreLocation);
+                error("Truststore file does not exist: {}", truststoreLocation);
             }
 
             producerProps.put("ssl.truststore.location", truststoreLocation);
             if (truststorePassword != null) {
                 producerProps.put("ssl.truststore.password", truststorePassword);
             } else {
-                logger.warn("SSL_TRUSTSTORE_PASSWORD not provided");
+                warn("SSL_TRUSTSTORE_PASSWORD not provided");
             }
             producerProps.put("ssl.truststore.type", truststoreType);
         } else {
-            logger.warn("SSL_TRUSTSTORE_LOCATION not provided");
+            warn("SSL_TRUSTSTORE_LOCATION not provided");
         }
 
         // Keystore settings
@@ -412,22 +445,22 @@ public class UniversalKafkaProducer {
         String keystoreType = configProps.getProperty("SSL_KEYSTORE_TYPE", "PKCS12");
 
         if (keystoreLocation != null) {
-            logger.info("Setting SSL keystore: {}", keystoreLocation);
+            debug("Setting SSL keystore: {}", keystoreLocation);
 
             // Check if keystore file exists
             if (!Files.exists(Paths.get(keystoreLocation))) {
-                logger.error("Keystore file does not exist: {}", keystoreLocation);
+                error("Keystore file does not exist: {}", keystoreLocation);
             }
 
             producerProps.put("ssl.keystore.location", keystoreLocation);
             if (keystorePassword != null) {
                 producerProps.put("ssl.keystore.password", keystorePassword);
             } else {
-                logger.warn("SSL_KEYSTORE_PASSWORD not provided");
+                warn("SSL_KEYSTORE_PASSWORD not provided");
             }
             producerProps.put("ssl.keystore.type", keystoreType);
         } else {
-            logger.debug("SSL_KEYSTORE_LOCATION not provided, client authentication not enabled");
+            debug("SSL_KEYSTORE_LOCATION not provided, client authentication not enabled");
         }
     }
 
@@ -436,6 +469,10 @@ public class UniversalKafkaProducer {
      */
     private static void logActualProducerConfig(Producer<String, String> producer) {
         try {
+            if (!DEBUG_MODE) {
+                return;
+            }
+
             java.lang.reflect.Field configField = producer.getClass().getDeclaredField("producerConfig");
             configField.setAccessible(true);
             org.apache.kafka.clients.producer.ProducerConfig actualConfig
@@ -446,7 +483,7 @@ public class UniversalKafkaProducer {
             logger.info("  linger.ms = {}", actualConfig.getString(ProducerConfig.LINGER_MS_CONFIG));
             logger.info("  acks = {}", actualConfig.getString(ProducerConfig.ACKS_CONFIG));
         } catch (Exception e) {
-            logger.warn("Could not access producer configuration details: {}", e.getMessage());
+            warn("Could not access producer configuration details: {}", e.getMessage());
         }
     }
 
@@ -458,5 +495,42 @@ public class UniversalKafkaProducer {
                 || propertyName.toLowerCase().contains("secret")
                 || propertyName.toLowerCase().contains("key")
                 || propertyName.toLowerCase().contains("token");
+    }
+
+    // Logging utility methods that respect the DEBUG_MODE flag
+    /**
+     * Log info message - these are always shown
+     */
+    private static void info(String message, Object... args) {
+        logger.info(message, args);
+    }
+
+    /**
+     * Log debug message - only shown when DEBUG_MODE is true
+     */
+    private static void debug(String message, Object... args) {
+        if (DEBUG_MODE) {
+            logger.info(message, args);
+        }
+    }
+
+    /**
+     * Log warning message - always shown
+     */
+    private static void warn(String message, Object... args) {
+        logger.warn(message, args);
+    }
+
+    /**
+     * Log error message - always shown
+     */
+    private static void error(String message, Object... args) {
+        logger.error(message, args);
+        // If the last argument is an exception, don't count it for formatting
+        if (args.length > 0 && args[args.length - 1] instanceof Throwable) {
+            TOTAL_ERRORS.incrementAndGet();
+        } else {
+            TOTAL_ERRORS.incrementAndGet();
+        }
     }
 }
