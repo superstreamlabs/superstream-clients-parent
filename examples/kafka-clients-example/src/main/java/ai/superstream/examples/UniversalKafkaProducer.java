@@ -374,19 +374,62 @@ public class UniversalKafkaProducer {
                 case "AWS_MSK_IAM":
                     // For AWS MSK with IAM
                     debug("Configuring AWS MSK IAM authentication");
+
+                    // First check if explicit credentials are provided
+                    String awsAccessKey = configProps.getProperty("AWS_ACCESS_KEY_ID");
+                    String awsSecretKey = configProps.getProperty("AWS_SECRET_ACCESS_KEY");
+
+                    if (awsAccessKey != null && awsSecretKey != null) {
+                        info("Using provided AWS credentials for IAM authentication");
+
+                        // Set as system properties for the AWS SDK
+                        System.setProperty("aws.accessKeyId", awsAccessKey);
+                        System.setProperty("aws.secretKey", awsSecretKey);
+
+                        // Also set as environment variables for the AWS SDK (backup method)
+                        try {
+                            java.lang.reflect.Field field = System.class.getDeclaredField("env");
+                            field.setAccessible(true);
+                            @SuppressWarnings("unchecked")
+                            java.util.Map<String, String> env = (java.util.Map<String, String>) field.get(null);
+                            java.util.Map<String, String> writableEnv = new java.util.HashMap<>(env);
+                            writableEnv.put("AWS_ACCESS_KEY_ID", awsAccessKey);
+                            writableEnv.put("AWS_SECRET_ACCESS_KEY", awsSecretKey);
+                            field.set(null, writableEnv);
+                        } catch (Exception e) {
+                            warn("Could not set AWS environment variables: {}", e.getMessage());
+                        }
+                    } else {
+                        warn("No AWS credentials provided for AWS_MSK_IAM mechanism. Will attempt to use instance profile/environment.");
+                        // Check if credentials are available in the environment
+                        boolean hasEnvCreds = System.getenv("AWS_ACCESS_KEY_ID") != null
+                                && System.getenv("AWS_SECRET_ACCESS_KEY") != null;
+
+                        if (!hasEnvCreds) {
+                            warn("No AWS credentials found in environment. This might fail if not running in an AWS environment with instance profile.");
+                        } else {
+                            debug("AWS credentials found in environment variables");
+                        }
+                    }
+
+                    // MSK IAM configuration
                     producerProps.put("sasl.jaas.config", "software.amazon.msk.auth.iam.IAMLoginModule required;");
                     producerProps.put("sasl.client.callback.handler.class",
                             "software.amazon.msk.auth.iam.IAMClientCallbackHandler");
 
-                    // Set AWS credentials if provided
-                    String awsAccessKey = configProps.getProperty("AWS_ACCESS_KEY_ID");
-                    String awsSecretKey = configProps.getProperty("AWS_SECRET_ACCESS_KEY");
-                    if (awsAccessKey != null && awsSecretKey != null) {
-                        debug("Using provided AWS credentials");
-                        System.setProperty("aws.accessKeyId", awsAccessKey);
-                        System.setProperty("aws.secretKey", awsSecretKey);
-                    } else {
-                        debug("Using instance profile for AWS credentials");
+                    // Region configuration (optional but recommended)
+                    String awsRegion = configProps.getProperty("AWS_REGION");
+                    if (awsRegion != null && !awsRegion.isEmpty()) {
+                        System.setProperty("aws.region", awsRegion);
+                    }
+
+                    // Add AWS SDK logging configuration
+                    if (DEBUG_MODE) {
+                        System.setProperty("org.apache.commons.logging.Log",
+                                "org.apache.commons.logging.impl.SimpleLog");
+                        System.setProperty("org.apache.commons.logging.simplelog.showdatetime", "true");
+                        System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http", "DEBUG");
+                        System.setProperty("org.apache.commons.logging.simplelog.log.com.amazonaws", "DEBUG");
                     }
                     break;
 
