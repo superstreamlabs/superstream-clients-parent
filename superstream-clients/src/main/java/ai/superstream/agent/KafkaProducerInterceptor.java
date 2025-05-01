@@ -8,6 +8,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Properties;
 import java.util.Map;
+import java.util.List;
 
 
 /**
@@ -102,7 +103,14 @@ public class KafkaProducerInterceptor {
                     Properties props = new Properties();
                     for (Map.Entry<String, Object> entry : map.entrySet()) {
                         if (entry.getValue() != null) {
-                            props.put(entry.getKey(), entry.getValue());
+                            // Handle bootstrap.servers when passed as a List
+                            if (entry.getKey().equals("bootstrap.servers") && entry.getValue() instanceof List) {
+                                @SuppressWarnings("unchecked")
+                                List<String> servers = (List<String>) entry.getValue();
+                                props.put(entry.getKey(), String.join(",", servers));
+                            } else {
+                                props.put(entry.getKey(), entry.getValue());
+                            }
                         }
                     }
                     return props;
@@ -132,7 +140,14 @@ public class KafkaProducerInterceptor {
                                 Properties props = new Properties();
                                 for (Map.Entry<String, Object> entry : map.entrySet()) {
                                     if (entry.getValue() != null) {
-                                        props.put(entry.getKey(), entry.getValue());
+                                        // Handle bootstrap.servers when passed as a List
+                                        if (entry.getKey().equals("bootstrap.servers") && entry.getValue() instanceof List) {
+                                            @SuppressWarnings("unchecked")
+                                            List<String> servers = (List<String>) entry.getValue();
+                                            props.put(entry.getKey(), String.join(",", servers));
+                                        } else {
+                                            props.put(entry.getKey(), entry.getValue());
+                                        }
                                     }
                                 }
                                 return props;
@@ -165,7 +180,14 @@ public class KafkaProducerInterceptor {
                                 Properties props = new Properties();
                                 for (Map.Entry<String, Object> entry : map.entrySet()) {
                                     if (entry.getValue() != null) {
-                                        props.put(entry.getKey(), entry.getValue());
+                                        // Handle bootstrap.servers when passed as a List
+                                        if (entry.getKey().equals("bootstrap.servers") && entry.getValue() instanceof List) {
+                                            @SuppressWarnings("unchecked")
+                                            List<String> servers = (List<String>) entry.getValue();
+                                            props.put(entry.getKey(), String.join(",", servers));
+                                        } else {
+                                            props.put(entry.getKey(), entry.getValue());
+                                        }
                                     }
                                 }
                                 return props;
