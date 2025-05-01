@@ -131,7 +131,7 @@ public class UniversalKafkaProducer {
                     logger.info("Sending a single test message");
                     sendTestMessage(producer, topicName, messageKey, messageValue);
                 }
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 logger.error("Fatal error with Kafka producer", e);
             }
         } catch (Exception e) {
@@ -307,7 +307,7 @@ public class UniversalKafkaProducer {
 
         if (configProps.containsKey("BATCH_SIZE")) {
             try {
-                producerProps.put(ProducerConfig.BATCH_SIZE_CONFIG, Integer.parseInt(configProps.getProperty("BATCH_SIZE")));
+                producerProps.put(ProducerConfig.BATCH_SIZE_CONFIG, Integer.valueOf(configProps.getProperty("BATCH_SIZE")));
                 debug("Using batch size: {}", configProps.getProperty("BATCH_SIZE"));
             } catch (NumberFormatException e) {
                 warn("Invalid BATCH_SIZE value: {}", configProps.getProperty("BATCH_SIZE"));
@@ -317,6 +317,12 @@ public class UniversalKafkaProducer {
         // Handle security configuration based on SECURITY_PROTOCOL
         String securityProtocol = configProps.getProperty("SECURITY_PROTOCOL");
         if (securityProtocol != null) {
+            // Fix for "No authentication" value - use PLAINTEXT instead
+            if (securityProtocol.equals("No authentication")) {
+                debug("Security protocol 'No authentication' detected, using PLAINTEXT instead");
+                securityProtocol = "PLAINTEXT";
+            }
+
             debug("Configuring security with protocol: {}", securityProtocol);
             producerProps.put("security.protocol", securityProtocol);
 
@@ -329,6 +335,10 @@ public class UniversalKafkaProducer {
             if (securityProtocol.contains("SSL")) {
                 configureSsl(producerProps, configProps);
             }
+        } else {
+            // Default to PLAINTEXT for local development with no authentication
+            debug("No security protocol specified, defaulting to PLAINTEXT");
+            producerProps.put("security.protocol", "PLAINTEXT");
         }
 
         // Copy any additional producer properties with "PRODUCER_" prefix
@@ -536,7 +546,7 @@ public class UniversalKafkaProducer {
             logger.info("  batch.size = {}", actualConfig.getInt(ProducerConfig.BATCH_SIZE_CONFIG));
             logger.info("  linger.ms = {}", actualConfig.getString(ProducerConfig.LINGER_MS_CONFIG));
             logger.info("  acks = {}", actualConfig.getString(ProducerConfig.ACKS_CONFIG));
-        } catch (Exception e) {
+        } catch (NoSuchFieldException | IllegalAccessException | ClassCastException e) {
             warn("Could not access producer configuration details: {}", e.getMessage());
         }
     }
@@ -598,7 +608,7 @@ public class UniversalKafkaProducer {
             java.util.Map<String, String> writableEnv = new java.util.HashMap<>(env);
             writableEnv.put(key, value);
             field.set(null, writableEnv);
-        } catch (Exception e) {
+        } catch (NoSuchFieldException | IllegalAccessException | SecurityException e) {
             warn("Could not set environment variable {}: {}", key, e.getMessage());
         }
     }
