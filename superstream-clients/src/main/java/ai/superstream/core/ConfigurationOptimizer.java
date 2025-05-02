@@ -59,9 +59,7 @@ public class ConfigurationOptimizer {
         }
 
         // Find the most impactful topic
-        TopicConfiguration mostImpactfulTopic = matchingConfigurations.stream()
-                .max(Comparator.comparing(TopicConfiguration::calculateImpactScore))
-                .orElse(null);
+        TopicConfiguration mostImpactfulTopic = findMostImpactfulTopic(matchingConfigurations);
 
         optimalConfiguration = new HashMap<>(mostImpactfulTopic.getOptimizedConfiguration());
 
@@ -176,5 +174,32 @@ public class ConfigurationOptimizer {
             return Boolean.parseBoolean(latencySensitiveStr.trim());
         }
         return false; // Default to not latency-sensitive
+    }
+
+    /**
+     * Helper to find the most impactful topic from a list of matching configurations.
+     */
+    private TopicConfiguration findMostImpactfulTopic(List<TopicConfiguration> matchingConfigurations) {
+        return matchingConfigurations.stream()
+                .max(Comparator.comparing(TopicConfiguration::calculateImpactScore))
+                .orElse(null);
+    }
+
+    /**
+     * Get the most impactful topic name for a set of topics.
+     *
+     * @param metadataMessage The metadata message
+     * @param applicationTopics The list of topics that the application might produce to
+     * @return The name of the most impactful topic, or null if none found
+     */
+    public String getMostImpactfulTopicName(MetadataMessage metadataMessage, List<String> applicationTopics) {
+        List<TopicConfiguration> matchingConfigurations = metadataMessage.getTopicsConfiguration().stream()
+                .filter(config -> applicationTopics.contains(config.getTopicName()))
+                .collect(Collectors.toList());
+        if (matchingConfigurations.isEmpty()) {
+            return null;
+        }
+        TopicConfiguration mostImpactfulTopic = findMostImpactfulTopic(matchingConfigurations);
+        return mostImpactfulTopic != null ? mostImpactfulTopic.getTopicName() : null;
     }
 }

@@ -217,6 +217,8 @@ public class SuperstreamManager {
                                          Map<String, Object> optimizedConfiguration) {
         try {
             Map<String, Object> originalConfiguration1 = convertPropertiesToMap(originalConfiguration);
+            List<String> topics = getApplicationTopics();
+            String mostImpactfulTopic = configurationOptimizer.getMostImpactfulTopicName(metadataMessage, topics);
             boolean success = clientReporter.reportClient(
                     bootstrapServers,
                     originalProperties,
@@ -224,7 +226,9 @@ public class SuperstreamManager {
                     metadataMessage.isActive(),
                     clientId,
                     originalConfiguration1,
-                    optimizedConfiguration
+                    optimizedConfiguration,
+                    topics,
+                    mostImpactfulTopic
             );
 
             if (!success) {
