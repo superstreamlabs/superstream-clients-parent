@@ -3,11 +3,11 @@
     <option name="ALTERNATIVE_JRE_PATH" value="21" />
     <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
     <envs>
-      <env name="SUPERSTREAM_TOPICS_LIST" value="example-topic" />
+      <env name="SUPERSTREAM_TOPICS_LIST" value="example-topic,idan" />
     </envs>
     <option name="MAIN_CLASS_NAME" value="ai.superstream.examples.SpringKafkaExampleApplication" />
     <module name="spring-kafka-example" />
-    <option name="VM_PARAMETERS" value="-javaagent:$PROJECT_DIR$/superstream-clients/target/superstream-clients-1.0.6.jar -Dlogback.configurationFile=src/main/resources/logback.xml" />
+    <option name="VM_PARAMETERS" value="-javaagent:$PROJECT_DIR$/superstream-clients/target/superstream-clients-1.0.7.jar -Dlogback.configurationFile=src/main/resources/logback.xml" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/examples/spring-kafka-example" />
     <method v="2">
       <option name="Make" enabled="true" />

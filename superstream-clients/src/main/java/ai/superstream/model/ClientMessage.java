@@ -2,6 +2,7 @@ package ai.superstream.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -18,13 +19,16 @@ public class ClientMessage {
     private String clientType;
     private Map<String, Object> originalConfiguration;
     private Map<String, Object> optimizedConfiguration;
+    private List<String> topics;
+    private String mostImpactfulTopic;
 
     public ClientMessage() {
         // Default constructor for Jackson
     }
 
     public ClientMessage(int superstreamClusterId, boolean active, String clientId, String ipAddress, String clientVersion, String language, String clientType,
-                         Map<String, Object> originalConfiguration, Map<String, Object> optimizedConfiguration) {
+                         Map<String, Object> originalConfiguration, Map<String, Object> optimizedConfiguration,
+                         List<String> topics, String mostImpactfulTopic) {
         this.superstreamClusterId = superstreamClusterId;
         this.active = active;
         this.clientId = clientId;
@@ -34,6 +38,8 @@ public class ClientMessage {
         this.clientType = clientType;
         this.originalConfiguration = originalConfiguration;
         this.optimizedConfiguration = optimizedConfiguration;
+        this.topics = topics;
+        this.mostImpactfulTopic = mostImpactfulTopic;
     }
 
     @JsonProperty("superstream_cluster_id")
@@ -126,6 +132,26 @@ public class ClientMessage {
         this.optimizedConfiguration = optimizedConfiguration;
     }
 
+    @JsonProperty("topics")
+    public List<String> getTopics() {
+        return topics;
+    }
+
+    @JsonProperty("topics")
+    public void setTopics(List<String> topics) {
+        this.topics = topics;
+    }
+
+    @JsonProperty("most_impactful_topic")
+    public String getMostImpactfulTopic() {
+        return mostImpactfulTopic;
+    }
+
+    @JsonProperty("most_impactful_topic")
+    public void setMostImpactfulTopic(String mostImpactfulTopic) {
+        this.mostImpactfulTopic = mostImpactfulTopic;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -139,12 +165,14 @@ public class ClientMessage {
                 Objects.equals(language, that.language) &&
                 Objects.equals(clientType, that.clientType) &&
                 Objects.equals(originalConfiguration, that.originalConfiguration) &&
-                Objects.equals(optimizedConfiguration, that.optimizedConfiguration);
+                Objects.equals(optimizedConfiguration, that.optimizedConfiguration) &&
+                Objects.equals(topics, that.topics) &&
+                Objects.equals(mostImpactfulTopic, that.mostImpactfulTopic);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(superstreamClusterId, active, clientId, ipAddress, clientVersion, language, clientType, originalConfiguration, optimizedConfiguration);
+        return Objects.hash(superstreamClusterId, active, clientId, ipAddress, clientVersion, language, clientType, originalConfiguration, optimizedConfiguration, topics, mostImpactfulTopic);
     }
 
     @Override
@@ -159,6 +187,8 @@ public class ClientMessage {
                 ", client_type='" + clientType + '\'' +
                 ", original_configuration=" + originalConfiguration +
                 ", optimized_configuration=" + optimizedConfiguration +
+                ", topics=" + topics +
+                ", most_impactful_topic='" + mostImpactfulTopic + '\'' +
                 '}';
     }
 }

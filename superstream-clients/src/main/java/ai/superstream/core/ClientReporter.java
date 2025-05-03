@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
@@ -40,11 +41,14 @@ public class ClientReporter {
      * @param clientId The client ID
      * @param originalConfiguration The original configuration
      * @param optimizedConfiguration The optimized configuration
+     * @param topics The list of topics
+     * @param mostImpactfulTopic The most impactful topic
      * @return True if the message was sent successfully, false otherwise
      */
     public boolean reportClient(String bootstrapServers, Properties originalClientProperties, int superstreamClusterId, boolean active,
                                 String clientId, Map<String, Object> originalConfiguration,
-                                Map<String, Object> optimizedConfiguration) {
+                                Map<String, Object> optimizedConfiguration,
+                                List<String> topics, String mostImpactfulTopic) {
         Properties properties = new Properties();
 
         // Copy all authentication-related and essential properties from the original client
@@ -70,7 +74,9 @@ public class ClientReporter {
                     LANGUAGE,
                     CLIENT_TYPE,
                     getCompleteProducerConfig(originalConfiguration),
-                    optimizedConfiguration
+                    optimizedConfiguration,
+                    topics,
+                    mostImpactfulTopic
             );
 
             // Convert the message to JSON
