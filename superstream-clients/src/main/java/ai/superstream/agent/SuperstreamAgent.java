@@ -50,7 +50,7 @@ public class SuperstreamAgent {
         // Intercept KafkaProducer constructor
         new AgentBuilder.Default()
                 .disableClassFormatChanges()
-                .type(ElementMatchers.named("org.apache.kafka.clients.producer.KafkaProducer"))
+                .type(ElementMatchers.nameEndsWith("KafkaProducer"))
                 .transform((builder, typeDescription, classLoader, module, protectionDomain) ->
                         builder.visit(Advice.to(KafkaProducerInterceptor.class)
                                 .on(ElementMatchers.isConstructor())))

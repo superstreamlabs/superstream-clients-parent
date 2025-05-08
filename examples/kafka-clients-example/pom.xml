@@ -14,12 +14,6 @@
     <artifactId>kafka-clients-example</artifactId>
 
     <dependencies>
-        <!-- Superstream Clients -->
-        <dependency>
-            <groupId>ai.superstream</groupId>
-            <artifactId>superstream-clients</artifactId>
-        </dependency>
-
         <!-- Kafka Client -->
         <dependency>
             <groupId>org.apache.kafka</groupId>
