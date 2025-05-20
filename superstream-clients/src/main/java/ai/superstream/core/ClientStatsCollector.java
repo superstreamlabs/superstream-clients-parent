@@ -26,47 +26,6 @@ public class ClientStatsCollector {
     }
     
     /**
-     * Gets the current compression ratio.
-     * A value of 1.0 means no compression, while smaller values indicate better compression.
-     * For example, 0.5 means data was compressed to half its original size.
-     * 
-     * @return The compression ratio (compressed size / uncompressed size)
-     */
-    public double getCompressionRatio() {
-        long uncompressedSize = totalBytesBeforeCompression.get();
-        if (uncompressedSize == 0) {
-            return 1.0; // No data recorded yet, return 1.0 (no compression)
-        }
-        return (double) totalBytesAfterCompression.get() / uncompressedSize;
-    }
-    
-    /**
-     * Gets the total bytes written before compression since the last reset.
-     * 
-     * @return Total bytes before compression
-     */
-    public long getTotalBytesBeforeCompression() {
-        return totalBytesBeforeCompression.get();
-    }
-    
-    /**
-     * Gets the total bytes written after compression since the last reset.
-     * 
-     * @return Total bytes after compression
-     */
-    public long getTotalBytesAfterCompression() {
-        return totalBytesAfterCompression.get();
-    }
-    
-    /**
-     * Resets all statistics counters after they've been reported.
-     */
-    public void reset() {
-        totalBytesBeforeCompression.set(0);
-        totalBytesAfterCompression.set(0);
-    }
-    
-    /**
      * Captures current statistics and resets counters atomically.
      * This prevents race conditions between reading values and resetting them.
      * 

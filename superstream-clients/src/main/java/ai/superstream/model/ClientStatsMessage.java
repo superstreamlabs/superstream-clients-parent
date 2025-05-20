@@ -15,38 +15,25 @@ public class ClientStatsMessage {
     private String messageType;
     private long totalWriteBefore;
     private long totalWriteAfter;
-    private double compressionRatio;
-    private int superstreamClusterId;
     private String clientVersion;
+    private java.util.Map<String, Double> producerMetrics; // Producer metrics map
+    private java.util.List<String> topics; // Topics written by producer
+    private java.util.Map<String,Object> originalConfiguration;
+    private java.util.Map<String,Object> optimizedConfiguration;
 
     public ClientStatsMessage() {
         // Default constructor for Jackson
     }
 
-    public ClientStatsMessage(String clientId, String ipAddress, 
-                             long totalWriteBefore, long totalWriteAfter, double compressionRatio,
-                             String clientVersion) {
+    public ClientStatsMessage(String clientId, String ipAddress,
+                              long totalWriteBefore, long totalWriteAfter,
+                              String clientVersion) {
         this.clientId = clientId;
         this.ipAddress = ipAddress;
-        this.type = "producer";  // Client type is producer
-        this.messageType = "client_stats"; // Message type is client_stats
+        this.type = "producer";
+        this.messageType = "client_stats";
         this.totalWriteBefore = totalWriteBefore;
         this.totalWriteAfter = totalWriteAfter;
-        this.compressionRatio = compressionRatio;
-        this.clientVersion = clientVersion;
-    }
-    
-    public ClientStatsMessage(String clientId, String ipAddress, int superstreamClusterId, 
-                            long totalWriteBefore, long totalWriteAfter, double compressionRatio,
-                            String clientVersion) {
-        this.clientId = clientId;
-        this.ipAddress = ipAddress;
-        this.type = "producer";  // Client type is producer
-        this.messageType = "client_stats"; // Message type is client_stats
-        this.totalWriteBefore = totalWriteBefore;
-        this.totalWriteAfter = totalWriteAfter;
-        this.compressionRatio = compressionRatio;
-        this.superstreamClusterId = superstreamClusterId;
         this.clientVersion = clientVersion;
     }
 
@@ -90,44 +77,24 @@ public class ClientStatsMessage {
         this.messageType = messageType;
     }
 
-    @JsonProperty("total_write_before")
+    @JsonProperty("write_before_compression")
     public long getTotalWriteBefore() {
         return totalWriteBefore;
     }
 
-    @JsonProperty("total_write_before")
+    @JsonProperty("write_before_compression")
     public void setTotalWriteBefore(long totalWriteBefore) {
         this.totalWriteBefore = totalWriteBefore;
     }
 
-    @JsonProperty("total_write_after")
+    @JsonProperty("write_after_compression")
     public long getTotalWriteAfter() {
         return totalWriteAfter;
     }
 
-    @JsonProperty("total_write_after")
+    @JsonProperty("write_after_compression")
     public void setTotalWriteAfter(long totalWriteAfter) {
         this.totalWriteAfter = totalWriteAfter;
-    }
-
-    @JsonProperty("compression_ratio")
-    public double getCompressionRatio() {
-        return compressionRatio;
-    }
-
-    @JsonProperty("compression_ratio")
-    public void setCompressionRatio(double compressionRatio) {
-        this.compressionRatio = compressionRatio;
-    }
-    
-    @JsonProperty("superstream_cluster_id")
-    public int getSuperstreamClusterId() {
-        return superstreamClusterId;
-    }
-
-    @JsonProperty("superstream_cluster_id")
-    public void setSuperstreamClusterId(int superstreamClusterId) {
-        this.superstreamClusterId = superstreamClusterId;
     }
 
     @JsonProperty("version")
@@ -140,6 +107,36 @@ public class ClientStatsMessage {
         this.clientVersion = clientVersion;
     }
 
+    @JsonProperty("producer_metrics")
+    public java.util.Map<String, Double> getProducerMetrics() {
+        return producerMetrics;
+    }
+
+    @JsonProperty("producer_metrics")
+    public void setProducerMetrics(java.util.Map<String, Double> producerMetrics) {
+        this.producerMetrics = producerMetrics;
+    }
+
+    @JsonProperty("topics")
+    public java.util.List<String> getTopics() {
+        return topics;
+    }
+
+    @JsonProperty("topics")
+    public void setTopics(java.util.List<String> topics) {
+        this.topics = topics;
+    }
+
+    @JsonProperty("original_configuration")
+    public java.util.Map<String,Object> getOriginalConfiguration() { return originalConfiguration; }
+    @JsonProperty("original_configuration")
+    public void setOriginalConfiguration(java.util.Map<String,Object> cfg) { this.originalConfiguration = cfg; }
+
+    @JsonProperty("optimized_configuration")
+    public java.util.Map<String,Object> getOptimizedConfiguration() { return optimizedConfiguration; }
+    @JsonProperty("optimized_configuration")
+    public void setOptimizedConfiguration(java.util.Map<String,Object> cfg) { this.optimizedConfiguration = cfg; }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -147,19 +144,21 @@ public class ClientStatsMessage {
         ClientStatsMessage that = (ClientStatsMessage) o;
         return totalWriteBefore == that.totalWriteBefore &&
                 totalWriteAfter == that.totalWriteAfter &&
-                Double.compare(that.compressionRatio, compressionRatio) == 0 &&
-                superstreamClusterId == that.superstreamClusterId &&
                 Objects.equals(clientId, that.clientId) &&
                 Objects.equals(ipAddress, that.ipAddress) &&
                 Objects.equals(type, that.type) &&
                 Objects.equals(messageType, that.messageType) &&
-                Objects.equals(clientVersion, that.clientVersion);
+                Objects.equals(clientVersion, that.clientVersion) &&
+                Objects.equals(producerMetrics, that.producerMetrics) &&
+                Objects.equals(topics, that.topics) &&
+                Objects.equals(originalConfiguration, that.originalConfiguration) &&
+                Objects.equals(optimizedConfiguration, that.optimizedConfiguration);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(clientId, ipAddress, type, messageType, totalWriteBefore, 
-                          totalWriteAfter, compressionRatio, superstreamClusterId, clientVersion);
+                          totalWriteAfter, clientVersion, producerMetrics, topics, originalConfiguration, optimizedConfiguration);
     }
 
     @Override
@@ -169,11 +168,13 @@ public class ClientStatsMessage {
                 ", ip_address='" + ipAddress + '\'' +
                 ", type='" + type + '\'' +
                 ", message_type='" + messageType + '\'' +
-                ", total_write_before=" + totalWriteBefore +
-                ", total_write_after=" + totalWriteAfter +
-                ", compression_ratio=" + compressionRatio +
-                ", superstream_cluster_id=" + superstreamClusterId +
+                ", write_before_compression=" + totalWriteBefore +
+                ", write_after_compression=" + totalWriteAfter +
                 ", version='" + clientVersion + '\'' +
+                ", producer_metrics=" + producerMetrics +
+                ", topics=" + topics +
+                ", original_configuration=" + originalConfiguration +
+                ", optimized_configuration=" + optimizedConfiguration +
                 '}';
     }
 } 

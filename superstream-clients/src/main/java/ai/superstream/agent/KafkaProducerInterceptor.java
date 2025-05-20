@@ -48,6 +48,10 @@ public class KafkaProducerInterceptor {
     public static final ThreadLocal<java.util.Deque<Properties>> TL_PROPS_STACK =
             ThreadLocal.withInitial(java.util.ArrayDeque::new);
 
+    // ThreadLocal stack to pass original/optimized configuration maps from optimization phase to reporter creation.
+    public static final ThreadLocal<java.util.Deque<ConfigInfo>> TL_CFG_STACK =
+            ThreadLocal.withInitial(java.util.ArrayDeque::new);
+
     // Static initializer to start the shared collector if enabled
     static {
         if (!DISABLED) {
@@ -210,6 +214,16 @@ public class KafkaProducerInterceptor {
                 // Register with the shared collector
                 producerMetricsMap.put(producerId, metricsInfo);
                 clientStatsReporters.put(producerId, reporter);
+
+                // Pop configuration info from ThreadLocal stack (if any) and attach to reporter
+                java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
+                ConfigInfo cfgInfo = cfgStack.isEmpty()? null : cfgStack.pop();
+                if (cfgStack.isEmpty()) {
+                    TL_CFG_STACK.remove();
+                }
+                if (cfgInfo != null) {
+                    reporter.setConfigurations(cfgInfo.originalConfig, cfgInfo.optimizedConfig);
+                }
 
                 logger.debug("Producer {} registered with shared metrics collector", producerId);
             }
@@ -662,6 +676,89 @@ public class KafkaProducerInterceptor {
                 info.updateLastStats(
                         new CompressionStats(totalOutgoingBytes, prevStats.uncompressedBytes + uncompressedBytes));
 
+                // Extract a snapshot of all producer metrics to include in stats reporting
+                java.util.Map<String, Double> allMetricsSnapshot = new java.util.HashMap<>();
+                try {
+                    java.util.Map<?, ?> rawMetricsMap = extractMetricsMap(metrics);
+                    if (rawMetricsMap != null) {
+                        for (java.util.Map.Entry<?, ?> mEntry : rawMetricsMap.entrySet()) {
+                            Object mKey = mEntry.getKey();
+                            String group = null;
+                            String namePart;
+                            String keyString = null;
+                            if (mKey == null) continue;
+
+                            if (mKey.getClass().getName().endsWith("MetricName")) {
+                                try {
+                                    java.lang.reflect.Method nameMethod = findMethod(mKey.getClass(), "name");
+                                    java.lang.reflect.Method groupMethod = findMethod(mKey.getClass(), "group");
+                                    namePart = (nameMethod != null) ? nameMethod.invoke(mKey).toString() : mKey.toString();
+                                    group = (groupMethod != null) ? groupMethod.invoke(mKey).toString() : "";
+                                    if (!"producer-metrics".equals(group)) {
+                                        continue; // skip non-producer groups
+                                    }
+                                    keyString = namePart; // store without the producer-metrics prefix
+                                } catch (Exception ignored) {}
+                            } else if (mKey instanceof String) {
+                                keyString = mKey.toString();
+                                if (!keyString.startsWith("producer-metrics")) {
+                                    continue; // skip
+                                }
+                                // strip the prefix (and the following dot if present)
+                                if (keyString.startsWith("producer-metrics.")) {
+                                    keyString = keyString.substring("producer-metrics.".length());
+                                } else if ("producer-metrics".equals(keyString)) {
+                                    continue; // unlikely but skip bare prefix
+                                }
+                            }
+                            if (keyString == null) continue;
+                            double mVal = extractMetricValue(mEntry.getValue());
+                            if (!Double.isNaN(mVal)) {
+                                allMetricsSnapshot.put(keyString, mVal);
+                            }
+                        }
+                    }
+                } catch (Exception snapshotEx) {
+                    // ignore snapshot errors
+                }
+
+                // Update reporter with latest metrics snapshot
+                reporter.updateProducerMetrics(allMetricsSnapshot);
+
+                // Aggregate topics written by this producer from producer-topic-metrics
+                java.util.Set<String> newTopics = new java.util.HashSet<>();
+                try {
+                    java.util.Map<?,?> rawMapForTopics = extractMetricsMap(metrics);
+                    if (rawMapForTopics != null) {
+                        for (java.util.Map.Entry<?,?> me : rawMapForTopics.entrySet()) {
+                            Object k = me.getKey();
+                            if (k == null) continue;
+                            if (k.getClass().getName().endsWith("MetricName")) {
+                                try {
+                                    java.lang.reflect.Method groupMethod = findMethod(k.getClass(), "group");
+                                    java.lang.reflect.Method tagsMethod = findMethod(k.getClass(), "tags");
+                                    if (groupMethod != null && tagsMethod != null) {
+                                        groupMethod.setAccessible(true);
+                                        String g = groupMethod.invoke(k).toString();
+                                        if ("producer-topic-metrics".equals(g)) {
+                                            tagsMethod.setAccessible(true);
+                                            Object tagObj = tagsMethod.invoke(k);
+                                            if (tagObj instanceof java.util.Map) {
+                                                Object topicObj = ((java.util.Map<?,?>)tagObj).get("topic");
+                                                if (topicObj != null) newTopics.add(topicObj.toString());
+                                            }
+                                        }
+                                    }
+                                } catch (Exception ignore) {}
+                            }
+                        }
+                    }
+                } catch (Exception ignore) {}
+
+                if (!newTopics.isEmpty()) {
+                    reporter.addTopics(newTopics);
+                }
+
                 // Report the compression statistics for this interval (delta)
                 reporter.recordBatch(uncompressedBytes, compressedBytes);
 
@@ -704,11 +801,11 @@ public class KafkaProducerInterceptor {
          * Find direct compression metrics in the metrics map.
          */
         private double findDirectCompressionMetric(Map<?, ?> metricsMap) {
-            // Look for compression metrics directly in the map
+            // Look for compression metrics in the *producer-metrics* group only
             for (Map.Entry<?, ?> entry : metricsMap.entrySet()) {
                 Object key = entry.getKey();
 
-                // Handle keys that are MetricName objects
+                // Handle MetricName keys
                 if (key.getClass().getName().endsWith("MetricName")) {
                     try {
                         Method nameMethod = findMethod(key.getClass(), "name");
@@ -721,33 +818,28 @@ public class KafkaProducerInterceptor {
                             String name = nameMethod.invoke(key).toString();
                             String group = groupMethod.invoke(key).toString();
 
-                            // Check for common compression metrics
-                            if ((group.equals("producer-metrics") || group.equals("producer-topic-metrics")) &&
-                                    (name.equals("compression-rate-avg") || name.equals("record-compression-rate") ||
-                                            name.equals("compression-ratio"))) {
+                            // Only accept metrics from producer-metrics group
+                            if (group.equals("producer-metrics") &&
+                                    (name.equals("compression-rate-avg") || name.equals("compression-ratio"))) {
 
-                                logger.debug("Found compression metric: {}.{}", group, name);
                                 double value = extractMetricValue(entry.getValue());
                                 if (value > 0) {
-                                    logger.debug("Compression ratio value: {}", value);
+                                    logger.debug("Found producer-metrics compression metric: {} -> {}", name, value);
                                     return value;
                                 }
                             }
                         }
-                    } catch (Exception e) {
-                        // Ignore and continue checking other keys
+                    } catch (Exception ignored) {
                     }
                 }
                 // Handle String keys
                 else if (key instanceof String) {
                     String keyStr = (String) key;
-                    if ((keyStr.contains("producer-metrics") || keyStr.contains("producer-topic-metrics")) &&
-                            (keyStr.contains("compression-rate") || keyStr.contains("compression-ratio"))) {
-
-                        logger.debug("Found compression metric with string key: {}", keyStr);
+                    if (keyStr.startsWith("producer-metrics") &&
+                            (keyStr.contains("compression-rate-avg") || keyStr.contains("compression-ratio"))) {
                         double value = extractMetricValue(entry.getValue());
                         if (value > 0) {
-                            logger.debug("Compression ratio value: {}", value);
+                            logger.debug("Found producer-metrics compression metric (string key): {} -> {}", keyStr, value);
                             return value;
                         }
                     }
@@ -757,101 +849,57 @@ public class KafkaProducerInterceptor {
         }
 
         /**
-         * Get the total outgoing bytes across all nodes from the metrics object.
-         * This metric exists per broker node and represents bytes after compression.
+         * Get the total outgoing bytes for the *producer* (after compression).
+         * Uses producer-metrics group only to keep numbers per-producer rather than per-node.
          */
         private long getOutgoingBytesTotal(Object metrics) {
             try {
-                // Extract the metrics map from the Metrics object
                 Map<?, ?> metricsMap = extractMetricsMap(metrics);
                 if (metricsMap != null) {
-                    // The outgoing-byte-total is in the producer-node-metrics group
-                    String targetGroup = "producer-node-metrics";
-                    String targetMetric = "outgoing-byte-total";
-                    long totalBytes = 0;
-                    boolean foundAnyNodeMetric = false;
+                    String targetGroup = "producer-metrics";
+                    String[] candidateNames = {"outgoing-byte-total", "byte-total"};
 
-                    // Iterate through all metrics
                     for (Map.Entry<?, ?> entry : metricsMap.entrySet()) {
                         Object key = entry.getKey();
 
-                        // Handle MetricName objects
+                        // MetricName keys
                         if (key.getClass().getName().endsWith("MetricName")) {
                             try {
                                 Method nameMethod = findMethod(key.getClass(), "name");
                                 Method groupMethod = findMethod(key.getClass(), "group");
-                                Method tagsMethod = findMethod(key.getClass(), "tags");
-
                                 if (nameMethod != null && groupMethod != null) {
                                     nameMethod.setAccessible(true);
                                     groupMethod.setAccessible(true);
-
                                     String name = nameMethod.invoke(key).toString();
                                     String group = groupMethod.invoke(key).toString();
 
-                                    // If this is a node metric with outgoing bytes
-                                    if (group.equals(targetGroup) && name.equals(targetMetric)) {
-                                        foundAnyNodeMetric = true;
-
-                                        double value = extractMetricValue(entry.getValue());
-
-                                        // Get the node-id from tags if possible
-                                        String nodeId = "unknown";
-                                        if (tagsMethod != null) {
-                                            tagsMethod.setAccessible(true);
-                                            Object tags = tagsMethod.invoke(key);
-                                            if (tags instanceof Map) {
-                                                Object nodeIdObj = ((Map<?, ?>) tags).get("node-id");
-                                                if (nodeIdObj != null) {
-                                                    nodeId = nodeIdObj.toString();
+                                    if (group.equals(targetGroup)) {
+                                        for (String n : candidateNames) {
+                                            if (n.equals(name)) {
+                                                double val = extractMetricValue(entry.getValue());
+                                                if (val > 0) {
+                                                    logger.debug("Found producer-metrics {} = {}", name, val);
+                                                    return (long) val;
                                                 }
                                             }
                                         }
-
-                                        logger.debug("Found outgoing bytes for node {}: {}", nodeId, value);
-                                        totalBytes += (long) value;
-                                    }
-
-                                    // Fall back to producer-metrics.byte-total if needed
-                                    if (!foundAnyNodeMetric && group.equals("producer-metrics") &&
-                                            (name.equals("byte-total") || name.equals("outgoing-byte-total"))) {
-                                        double value = extractMetricValue(entry.getValue());
-                                        logger.debug("Found fallback byte metric: {}={}", name, value);
-                                        // Save this value but keep looking for node-specific metrics
-                                        if (totalBytes == 0) {
-                                            totalBytes = (long) value;
-                                        }
                                     }
                                 }
-                            } catch (Exception e) {
-                                logger.debug("Error extracting metrics: {}", e.getMessage());
-                            }
-                        }
-                        // Handle String keys
-                        else if (key instanceof String) {
+                            } catch (Exception ignored) {}
+                        } else if (key instanceof String) {
                             String keyStr = (String) key;
-                            if (keyStr.contains(targetGroup) && keyStr.contains(targetMetric)) {
-                                foundAnyNodeMetric = true;
-                                double value = extractMetricValue(entry.getValue());
-                                logger.debug("Found outgoing bytes with string key {}: {}", keyStr, value);
-                                totalBytes += (long) value;
+                            if (keyStr.startsWith(targetGroup) && (keyStr.contains("outgoing-byte-total") || keyStr.contains("byte-total"))) {
+                                double val = extractMetricValue(entry.getValue());
+                                if (val > 0) {
+                                    logger.debug("Found producer-metrics byte counter (string key) {} = {}", keyStr, val);
+                                    return (long) val;
+                                }
                             }
                         }
                     }
-
-                    if (totalBytes > 0) {
-                        if (foundAnyNodeMetric) {
-                            logger.debug("Total outgoing bytes across all nodes: {}", totalBytes);
-                        } else {
-                            logger.debug("Using fallback byte metric total: {}", totalBytes);
-                        }
-                        return totalBytes;
-                    }
-                } else {
-                    logger.debug("Could not extract metrics map from: {}", metrics.getClass().getName());
                 }
             } catch (Exception e) {
-                logger.debug("Error getting outgoing bytes total: {}", e.getMessage(), e);
+                logger.debug("Error getting outgoing bytes total from producer-metrics: {}", e.getMessage());
             }
 
             return 0;
@@ -940,6 +988,19 @@ public class KafkaProducerInterceptor {
         public CompressionStats(long compressedBytes, long uncompressedBytes) {
             this.compressedBytes = compressedBytes;
             this.uncompressedBytes = uncompressedBytes;
+        }
+    }
+
+    /**
+     * Holder for original and optimized configuration maps passed between optimization
+     * phase and stats reporter creation using ThreadLocal.
+     */
+    public static class ConfigInfo {
+        public final java.util.Map<String,Object> originalConfig;
+        public final java.util.Map<String,Object> optimizedConfig;
+        public ConfigInfo(java.util.Map<String,Object> orig, java.util.Map<String,Object> opt) {
+            this.originalConfig = orig;
+            this.optimizedConfig = opt;
         }
     }
 }

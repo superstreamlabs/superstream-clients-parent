@@ -19,6 +19,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * Reports client statistics to the superstream.clients topic periodically.
@@ -46,8 +48,11 @@ public class ClientStatsReporter {
     private final AtomicBoolean registered = new AtomicBoolean(false);
     private final boolean disabled;
 
-    // Track the superstream cluster ID
-    private int superstreamClusterId;
+    private final AtomicReference<java.util.Map<String, Double>> latestMetrics = new AtomicReference<>(
+            new java.util.HashMap<>());
+    private final ConcurrentSkipListSet<String> topicsWritten = new ConcurrentSkipListSet<>();
+    private volatile java.util.Map<String, Object> originalConfig = null;
+    private volatile java.util.Map<String, Object> optimizedConfig = null;
 
     /**
      * Creates a new client stats reporter.
@@ -65,15 +70,6 @@ public class ClientStatsReporter {
         }
 
         this.statsCollector = new ClientStatsCollector();
-        
-        // Determine the superstream cluster ID using SuperstreamManager
-        int clusterId = 0;
-        try {
-            clusterId = SuperstreamManager.getInstance().getSuperstreamClusterId(bootstrapServers);
-        } catch (Exception e) {
-            logger.debug("Could not determine superstream_cluster_id: {}", e.getMessage());
-        }
-        this.superstreamClusterId = clusterId;
 
         // Copy authentication properties from the original client
         this.producerProperties = new Properties();
@@ -115,72 +111,85 @@ public class ClientStatsReporter {
         }
     }
 
-    /**
-     * Records compression statistics for a batch of messages with cluster ID.
-     * This method should be called by the producer each time it sends a batch.
-     *
-     * @param uncompressedSize Size of batch before compression (in bytes)
-     * @param compressedSize   Size of batch after compression (in bytes)
-     * @param clusterId        The cluster ID (string format)
-     */
-    public void recordBatch(long uncompressedSize, long compressedSize, String clusterId) {
-        // Only record if we're actually running and not disabled
-        if (registered.get() && !disabled) {
-            if (clusterId != null) {
-                try {
-                    // Attempt to parse the clusterId directly as an integer
-                    this.superstreamClusterId = Integer.parseInt(clusterId.trim());
-                } catch (NumberFormatException e) {
-                    // Ignore if not purely numeric or not parseable
-                    logger.debug("Failed to parse superstream_cluster_id from clusterId string: {}", clusterId);
-                }
-            }
-
-            // Record the batch
-            statsCollector.recordBatch(uncompressedSize, compressedSize);
-        }
-    }
-
     // Drain stats into producer, called by coordinator
     void drainInto(Producer<String, String> producer) {
-        if (disabled) return;
+        if (disabled)
+            return;
 
         try {
             ClientStatsCollector.Stats stats = statsCollector.captureAndReset();
             long totalBytesBefore = stats.getBytesBeforeCompression();
-            if (totalBytesBefore == 0) return;
+            if (totalBytesBefore == 0)
+                return;
 
             long totalBytesAfter = stats.getBytesAfterCompression();
-            double compressionRatio = stats.getCompressionRatio();
 
-            if (totalBytesBefore == totalBytesAfter) return;
+            if (totalBytesBefore == totalBytesAfter)
+                return;
 
             ClientStatsMessage message = new ClientStatsMessage(
                     clientId,
                     NetworkUtils.getLocalIpAddress(),
-                    superstreamClusterId,
                     totalBytesBefore,
                     totalBytesAfter,
-                    compressionRatio,
                     ClientReporter.getClientVersion());
+
+            // Attach full producer metrics snapshot if available
+            java.util.Map<String, Double> metricsSnapshot = latestMetrics.get();
+            if (metricsSnapshot != null && !metricsSnapshot.isEmpty()) {
+                message.setProducerMetrics(metricsSnapshot);
+            }
+
+            if (originalConfig != null) {
+                message.setOriginalConfiguration(originalConfig);
+            }
+            if (optimizedConfig != null) {
+                message.setOptimizedConfiguration(optimizedConfig);
+            }
+
+            // Attach topics list
+            if (!topicsWritten.isEmpty()) {
+                message.setTopics(new java.util.ArrayList<>(topicsWritten));
+            }
 
             String json = objectMapper.writeValueAsString(message);
             ProducerRecord<String, String> record = new ProducerRecord<>(CLIENTS_TOPIC, json);
             producer.send(record);
 
             // Log at INFO level that stats have been sent for this producer
-            logger.info("Producer {} stats sent: before={} bytes, after={} bytes, ratio={}",
-                    clientId, totalBytesBefore, totalBytesAfter, String.format("%.4f", compressionRatio));
+            logger.info("Producer {} stats sent: before={} bytes, after={} bytes",
+                    clientId, totalBytesBefore, totalBytesAfter);
         } catch (Exception e) {
             logger.debug("Failed to drain stats for client {}", clientId, e);
         }
     }
 
     private static String normalizeBootstrapServers(String servers) {
-        if (servers == null) return "";
+        if (servers == null)
+            return "";
         String[] parts = servers.split(",");
         java.util.Arrays.sort(parts);
         return String.join(",", parts).trim();
+    }
+
+    public void updateProducerMetrics(java.util.Map<String, Double> metrics) {
+        if (!disabled && metrics != null) {
+            latestMetrics.set(new java.util.HashMap<>(metrics));
+        }
+    }
+
+    public void addTopics(java.util.Collection<String> topics) {
+        if (!disabled && topics != null) {
+            topicsWritten.addAll(topics);
+        }
+    }
+
+    public void setConfigurations(java.util.Map<String, Object> originalCfg,
+            java.util.Map<String, Object> optimizedCfg) {
+        if (!disabled) {
+            this.originalConfig = originalCfg;
+            this.optimizedConfig = optimizedCfg;
+        }
     }
 
     // Coordinator class per cluster
@@ -203,8 +212,9 @@ public class ClientStatsReporter {
         }
 
         private void run() {
-            if (reporters.isEmpty()) return;
-            try (Producer<String,String> producer = new KafkaProducer<>(baseProps)) {
+            if (reporters.isEmpty())
+                return;
+            try (Producer<String, String> producer = new KafkaProducer<>(baseProps)) {
                 for (ClientStatsReporter r : reporters) {
                     r.drainInto(producer);
                 }

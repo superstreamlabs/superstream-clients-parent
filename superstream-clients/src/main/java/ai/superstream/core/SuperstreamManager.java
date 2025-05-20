@@ -137,11 +137,28 @@ public class SuperstreamManager {
                 return false;
             }
 
-            // Extract the optimized configuration for reporting
+            // Build optimized configuration map to report: include every key that was considered for optimisation.
             Map<String, Object> optimizedProperties = new HashMap<>();
-            for (String key : modifiedKeys) {
-                optimizedProperties.put(key, properties.get(key));
+            for (String key : optimalConfiguration.keySet()) {
+                // After applyOptimalConfiguration, 'properties' holds the final value (either overridden or original).
+                Object finalVal = properties.get(key);
+                if (finalVal == null) {
+                    // If not present in current props, fall back to original value (may be null as well)
+                    finalVal = originalProperties.get(key);
+                }
+                optimizedProperties.put(key, finalVal);
             }
+
+            // Build original filtered configuration limited to optimal keys
+            Map<String,Object> originalFiltered = new java.util.HashMap<>();
+            Map<String,Object> originalMap = convertPropertiesToMap(originalProperties);
+            for (String key : optimalConfiguration.keySet()) {
+                originalFiltered.put(key, originalMap.get(key));
+            }
+
+            // Pass configuration info via ThreadLocal to interceptor's onExit
+            ai.superstream.agent.KafkaProducerInterceptor.TL_CFG_STACK.get()
+                    .push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(originalFiltered, optimizedProperties));
 
             // Report client information
             reportClientInformation(
@@ -237,87 +254,5 @@ public class SuperstreamManager {
         } catch (Exception e) {
             logger.error("Error reporting client information", e);
         }
-    }
-
-    /**
-     * Get the superstream cluster ID for a specific bootstrap servers entry in the metadata cache,
-     * or 0 if no metadata is available for this servers string.
-     * 
-     * @param bootstrapServers The bootstrap servers to look up
-     * @return The superstream cluster ID for the specified bootstrap servers
-     */
-    public int getSuperstreamClusterId(String bootstrapServers) {
-        if (bootstrapServers == null || bootstrapServers.trim().isEmpty()) {
-            logger.debug("Bootstrap servers is null or empty, returning default superstream_cluster_id of 0");
-            return 0;
-        }
-        
-        // Normalize the bootstrap servers string for lookup
-        String normalizedServers = normalizeBootstrapServers(bootstrapServers);
-        
-        // First try exact match
-        MetadataMessage metadata = metadataCache.get(normalizedServers);
-        if (metadata != null) {
-            int id = metadata.getSuperstreamClusterId();
-            logger.debug("Found superstream_cluster_id: {} for bootstrap servers: {}", id, bootstrapServers);
-            return id;
-        }
-        
-        // If no exact match, look for partial match (as servers might be specified in different formats/orders)
-        for (Map.Entry<String, MetadataMessage> entry : metadataCache.entrySet()) {
-            if (serversOverlap(normalizedServers, entry.getKey())) {
-                int id = entry.getValue().getSuperstreamClusterId();
-                logger.debug("Found superstream_cluster_id: {} for related bootstrap servers: {}", id, bootstrapServers);
-                return id;
-            }
-        }
-        
-        logger.debug("No metadata found for bootstrap servers: {}, returning default superstream_cluster_id of 0", bootstrapServers);
-        return 0;
-    }
-    
-    /**
-     * Normalize a bootstrap servers string for consistent lookup.
-     * Converts a comma-separated list to a sorted, de-duplicated, normalized form.
-     * 
-     * @param bootstrapServers The bootstrap servers string
-     * @return Normalized bootstrap servers string
-     */
-    private String normalizeBootstrapServers(String bootstrapServers) {
-        if (bootstrapServers == null || bootstrapServers.trim().isEmpty()) {
-            return "";
-        }
-        
-        // Split the servers, trim each entry, and sort them
-        Set<String> uniqueServers = new TreeSet<>();
-        for (String server : bootstrapServers.split(",")) {
-            String trimmed = server.trim();
-            if (!trimmed.isEmpty()) {
-                uniqueServers.add(trimmed);
-            }
-        }
-        
-        // Join them back with commas
-        return String.join(",", uniqueServers);
-    }
-    
-    /**
-     * Check if two bootstrap servers strings overlap in terms of actual servers.
-     * 
-     * @param servers1 First bootstrap servers string (normalized)
-     * @param servers2 Second bootstrap servers string (normalized)
-     * @return True if there is at least one common server
-     */
-    private boolean serversOverlap(String servers1, String servers2) {
-        if (servers1 == null || servers2 == null || servers1.isEmpty() || servers2.isEmpty()) {
-            return false;
-        }
-        
-        Set<String> set1 = new HashSet<>(Arrays.asList(servers1.split(",")));
-        Set<String> set2 = new HashSet<>(Arrays.asList(servers2.split(",")));
-        
-        // Find intersection
-        set1.retainAll(set2);
-        return !set1.isEmpty();
     }
 }
