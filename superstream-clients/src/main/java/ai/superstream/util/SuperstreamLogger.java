@@ -38,16 +38,6 @@ public class SuperstreamLogger {
     }
 
     /**
-     * Add the superstream prefix to a log message.
-     *
-     * @param message The original message
-     * @return The message with prefix
-     */
-    private String withPrefix(String message) {
-        return "[" + PREFIX + "] " + message;
-    }
-
-    /**
      * Log an info message.
      */
     public void info(String message) {

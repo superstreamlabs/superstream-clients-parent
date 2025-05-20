@@ -1,0 +1,217 @@
+package ai.superstream.core;
+
+import ai.superstream.agent.KafkaProducerInterceptor;
+import ai.superstream.model.ClientStatsMessage;
+import ai.superstream.util.NetworkUtils;
+import ai.superstream.util.SuperstreamLogger;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.StringSerializer;
+
+import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * Reports client statistics to the superstream.clients topic periodically.
+ */
+public class ClientStatsReporter {
+    private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ClientStatsReporter.class);
+    private static final String CLIENTS_TOPIC = "superstream.clients";
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final long REPORT_INTERVAL_MS = 60000; // 1 minute
+    private static final String DISABLED_ENV_VAR = "SUPERSTREAM_DISABLED";
+
+    // Shared scheduler for all reporters to minimize thread usage
+    private static final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "superstream-client-stats-reporter");
+        t.setDaemon(true);
+        return t;
+    });
+
+    // Coordinator per cluster to minimise producer usage
+    private static final ConcurrentHashMap<String, ClusterStatsCoordinator> coordinators = new ConcurrentHashMap<>();
+
+    private final ClientStatsCollector statsCollector;
+    private final Properties producerProperties;
+    private final String clientId;
+    private final AtomicBoolean registered = new AtomicBoolean(false);
+    private final boolean disabled;
+
+    // Track the superstream cluster ID
+    private int superstreamClusterId;
+
+    /**
+     * Creates a new client stats reporter.
+     *
+     * @param bootstrapServers Kafka bootstrap servers
+     * @param clientProperties Producer properties to use for authentication
+     * @param clientId         The client ID to include in reports
+     */
+    public ClientStatsReporter(String bootstrapServers, Properties clientProperties, String clientId) {
+        this.clientId = clientId;
+        this.disabled = Boolean.parseBoolean(System.getenv(DISABLED_ENV_VAR));
+
+        if (this.disabled) {
+            logger.info("Superstream stats reporting is disabled via environment variable");
+        }
+
+        this.statsCollector = new ClientStatsCollector();
+        
+        // Determine the superstream cluster ID using SuperstreamManager
+        int clusterId = 0;
+        try {
+            clusterId = SuperstreamManager.getInstance().getSuperstreamClusterId(bootstrapServers);
+        } catch (Exception e) {
+            logger.debug("Could not determine superstream_cluster_id: {}", e.getMessage());
+        }
+        this.superstreamClusterId = clusterId;
+
+        // Copy authentication properties from the original client
+        this.producerProperties = new Properties();
+        ClientReporter.copyAuthenticationProperties(clientProperties, this.producerProperties);
+
+        // Set up basic producer properties
+        this.producerProperties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        this.producerProperties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        this.producerProperties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        this.producerProperties.put(ProducerConfig.CLIENT_ID_CONFIG,
+                KafkaProducerInterceptor.SUPERSTREAM_LIBRARY_PREFIX + "client-stats-reporter");
+
+        // Use efficient compression settings for the reporter itself
+        this.producerProperties.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "zstd");
+        this.producerProperties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
+        this.producerProperties.put(ProducerConfig.LINGER_MS_CONFIG, 100);
+
+        // Mark as registered for recordBatch logic
+        this.registered.set(true);
+
+        // Register with per-cluster coordinator
+        String clusterKey = normalizeBootstrapServers(bootstrapServers);
+        ClusterStatsCoordinator coord = coordinators.computeIfAbsent(clusterKey,
+                k -> new ClusterStatsCoordinator(bootstrapServers, producerProperties));
+        coord.addReporter(this);
+    }
+
+    /**
+     * Records compression statistics for a batch of messages.
+     * This method should be called by the producer each time it sends a batch.
+     *
+     * @param uncompressedSize Size of batch before compression (in bytes)
+     * @param compressedSize   Size of batch after compression (in bytes)
+     */
+    public void recordBatch(long uncompressedSize, long compressedSize) {
+        // Only record if we're actually running and not disabled
+        if (registered.get() && !disabled) {
+            statsCollector.recordBatch(uncompressedSize, compressedSize);
+        }
+    }
+
+    /**
+     * Records compression statistics for a batch of messages with cluster ID.
+     * This method should be called by the producer each time it sends a batch.
+     *
+     * @param uncompressedSize Size of batch before compression (in bytes)
+     * @param compressedSize   Size of batch after compression (in bytes)
+     * @param clusterId        The cluster ID (string format)
+     */
+    public void recordBatch(long uncompressedSize, long compressedSize, String clusterId) {
+        // Only record if we're actually running and not disabled
+        if (registered.get() && !disabled) {
+            if (clusterId != null) {
+                try {
+                    // Attempt to parse the clusterId directly as an integer
+                    this.superstreamClusterId = Integer.parseInt(clusterId.trim());
+                } catch (NumberFormatException e) {
+                    // Ignore if not purely numeric or not parseable
+                    logger.debug("Failed to parse superstream_cluster_id from clusterId string: {}", clusterId);
+                }
+            }
+
+            // Record the batch
+            statsCollector.recordBatch(uncompressedSize, compressedSize);
+        }
+    }
+
+    // Drain stats into producer, called by coordinator
+    void drainInto(Producer<String, String> producer) {
+        if (disabled) return;
+
+        try {
+            ClientStatsCollector.Stats stats = statsCollector.captureAndReset();
+            long totalBytesBefore = stats.getBytesBeforeCompression();
+            if (totalBytesBefore == 0) return;
+
+            long totalBytesAfter = stats.getBytesAfterCompression();
+            double compressionRatio = stats.getCompressionRatio();
+
+            if (totalBytesBefore == totalBytesAfter) return;
+
+            ClientStatsMessage message = new ClientStatsMessage(
+                    clientId,
+                    NetworkUtils.getLocalIpAddress(),
+                    superstreamClusterId,
+                    totalBytesBefore,
+                    totalBytesAfter,
+                    compressionRatio,
+                    ClientReporter.getClientVersion());
+
+            String json = objectMapper.writeValueAsString(message);
+            ProducerRecord<String, String> record = new ProducerRecord<>(CLIENTS_TOPIC, json);
+            producer.send(record);
+
+            // Log at INFO level that stats have been sent for this producer
+            logger.info("Producer {} stats sent: before={} bytes, after={} bytes, ratio={}",
+                    clientId, totalBytesBefore, totalBytesAfter, String.format("%.4f", compressionRatio));
+        } catch (Exception e) {
+            logger.debug("Failed to drain stats for client {}", clientId, e);
+        }
+    }
+
+    private static String normalizeBootstrapServers(String servers) {
+        if (servers == null) return "";
+        String[] parts = servers.split(",");
+        java.util.Arrays.sort(parts);
+        return String.join(",", parts).trim();
+    }
+
+    // Coordinator class per cluster
+    private static class ClusterStatsCoordinator {
+        private final String bootstrapServers;
+        private final Properties baseProps;
+        private final CopyOnWriteArrayList<ClientStatsReporter> reporters = new CopyOnWriteArrayList<>();
+        private final AtomicBoolean scheduled = new AtomicBoolean(false);
+
+        ClusterStatsCoordinator(String bootstrapServers, Properties baseProps) {
+            this.bootstrapServers = bootstrapServers;
+            this.baseProps = baseProps;
+        }
+
+        void addReporter(ClientStatsReporter r) {
+            reporters.add(r);
+            if (scheduled.compareAndSet(false, true)) {
+                scheduler.scheduleAtFixedRate(this::run, REPORT_INTERVAL_MS, REPORT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+            }
+        }
+
+        private void run() {
+            if (reporters.isEmpty()) return;
+            try (Producer<String,String> producer = new KafkaProducer<>(baseProps)) {
+                for (ClientStatsReporter r : reporters) {
+                    r.drainInto(producer);
+                }
+                producer.flush();
+            } catch (Exception e) {
+                logger.debug("Cluster stats coordinator failed for {}", bootstrapServers, e);
+            }
+        }
+    }
+}

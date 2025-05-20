@@ -9,6 +9,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import ai.superstream.agent.KafkaProducerInterceptor;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -39,7 +40,7 @@ public class MetadataConsumer {
         properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        properties.put(ConsumerConfig.CLIENT_ID_CONFIG, "superstreamlib-metadata-consumer");
+        properties.put(ConsumerConfig.CLIENT_ID_CONFIG, KafkaProducerInterceptor.SUPERSTREAM_LIBRARY_PREFIX + "metadata-consumer");
 
         try (Consumer<String, String> consumer = new KafkaConsumer<>(properties)) {
             // Check if the metadata topic exists

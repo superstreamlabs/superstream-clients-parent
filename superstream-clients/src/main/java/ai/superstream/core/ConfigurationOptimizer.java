@@ -14,14 +14,23 @@ public class ConfigurationOptimizer {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ConfigurationOptimizer.class);
     private static final String LATENCY_SENSITIVE_ENV_VAR = "SUPERSTREAM_LATENCY_SENSITIVE";
 
+    // List of configuration parameters that should be preserved if larger than
+    // recommended
+    private static final Set<String> PRESERVE_IF_LARGER = new HashSet<>(Arrays.asList(
+            "batch.size",
+            "linger.ms"));
+
     /**
      * Get the optimal configuration for a set of topics.
      *
-     * @param metadataMessage The metadata message
-     * @param applicationTopics The list of topics that the application might produce to
-     * @return The optimal configuration, or an empty map if no optimization is possible
+     * @param metadataMessage   The metadata message
+     * @param applicationTopics The list of topics that the application might
+     *                          produce to
+     * @return The optimal configuration, or an empty map if no optimization is
+     *         possible
      */
-    public Map<String, Object> getOptimalConfiguration(MetadataMessage metadataMessage, List<String> applicationTopics) {
+    public Map<String, Object> getOptimalConfiguration(MetadataMessage metadataMessage,
+            List<String> applicationTopics) {
         // Check if the application is latency-sensitive
         boolean isLatencySensitive = isLatencySensitive();
         if (isLatencySensitive) {
@@ -37,22 +46,26 @@ public class ConfigurationOptimizer {
 
         if (matchingConfigurations.isEmpty()) {
             if (applicationTopics.isEmpty()) {
-                logger.info("SUPERSTREAM_TOPICS_LIST environment variable contains no topics. Applying default optimizations.");
+                logger.info(
+                        "SUPERSTREAM_TOPICS_LIST environment variable contains no topics. Applying default optimizations.");
             } else {
-                logger.info("No matching topic configurations found for the application topics. Applying default optimizations.");
+                logger.info(
+                        "No matching topic configurations found for the application topics. Applying default optimizations.");
             }
 
             // Apply default optimizations when no matching topics found
             optimalConfiguration = new HashMap<>();
             optimalConfiguration.put("compression.type", "zstd");
-            optimalConfiguration.put("batch.size", 16384);  // 16KB
+            optimalConfiguration.put("batch.size", 16384); // 16KB
 
             // Only add linger if not latency-sensitive
             if (!isLatencySensitive) {
-                optimalConfiguration.put("linger.ms", 5000);  // 5 seconds default
-                logger.info("Default optimizations will be applied: compression.type=zstd, batch.size=16384, linger.ms=5000");
+                optimalConfiguration.put("linger.ms", 5000); // 5 seconds default
+                logger.info(
+                        "Default optimizations will be applied: compression.type=zstd, batch.size=16384, linger.ms=5000");
             } else {
-                logger.info("Default optimizations will be applied: compression.type=zstd, batch.size=16384 (linger.ms unchanged)");
+                logger.info(
+                        "Default optimizations will be applied: compression.type=zstd, batch.size=16384 (linger.ms unchanged)");
             }
 
             return optimalConfiguration;
@@ -75,7 +88,7 @@ public class ConfigurationOptimizer {
     /**
      * Apply the optimal configuration to the producer properties.
      *
-     * @param properties The producer properties to modify
+     * @param properties           The producer properties to modify
      * @param optimalConfiguration The optimal configuration to apply
      * @return The list of configuration keys that were modified
      */
@@ -90,36 +103,40 @@ public class ConfigurationOptimizer {
             String key = entry.getKey();
             Object value = entry.getValue();
 
-            // Special handling for linger.ms
-            if ("linger.ms".equals(key)) {
-                // Skip linger.ms if the application is latency-sensitive
-                if (isLatencySensitive()) {
-                    logger.info("Skipping linger.ms optimization due to latency-sensitive configuration");
+            // Skip linger.ms optimization if the application is latency-sensitive
+            if ("linger.ms".equals(key) && isLatencySensitive()) {
+                logger.info("Skipping linger.ms optimization due to latency-sensitive configuration");
+                continue;
+            }
+
+            // Special handling for configurations that should be preserved if larger
+            if (PRESERVE_IF_LARGER.contains(key)) {
+                // Get the recommended value as a number
+                int recommendedValue;
+                try {
+                    recommendedValue = value instanceof Number ? ((Number) value).intValue()
+                            : Integer.parseInt(value.toString());
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid recommended value for {}: {}. Skipping this parameter.", key, value);
                     continue;
                 }
 
-                int optimalLinger = value instanceof Number ?
-                        ((Number) value).intValue() : Integer.parseInt(value.toString());
-
-                // Check if there's an existing linger setting
+                // Check if there's an existing setting
                 Object existingValue = properties.get(key);
                 if (existingValue != null) {
-                    int existingLinger;
-                    if (existingValue instanceof Number) {
-                        existingLinger = ((Number) existingValue).intValue();
-                    } else {
-                        try {
-                            existingLinger = Integer.parseInt(existingValue.toString());
-                        } catch (NumberFormatException e) {
-                            logger.warn("Invalid existing linger.ms value: {}. Will use optimal value.", existingValue);
-                            existingLinger = 0;
-                        }
+                    int existingNumericValue;
+                    try {
+                        existingNumericValue = existingValue instanceof Number ? ((Number) existingValue).intValue()
+                                : Integer.parseInt(existingValue.toString());
+                    } catch (NumberFormatException e) {
+                        logger.warn("Invalid existing {} value: {}. Will use recommended value.", key, existingValue);
+                        existingNumericValue = 0;
                     }
 
-                    // Use the greater of optimal and existing linger values
-                    if (existingLinger > optimalLinger) {
-                        logger.info("Keeping existing linger.ms value {} as it's greater than optimal value {}",
-                                existingLinger, optimalLinger);
+                    // Keep the existing value if it's larger than the recommended value
+                    if (existingNumericValue > recommendedValue) {
+                        logger.info("Keeping existing {} value {} as it's greater than recommended value {}",
+                                key, existingNumericValue, recommendedValue);
                         continue; // Skip this key, keeping the existing value
                     }
                 }
@@ -164,7 +181,8 @@ public class ConfigurationOptimizer {
     }
 
     /**
-     * Determine if the application is latency-sensitive based on environment variable.
+     * Determine if the application is latency-sensitive based on environment
+     * variable.
      *
      * @return true if the application is latency-sensitive, false otherwise
      */
@@ -177,7 +195,8 @@ public class ConfigurationOptimizer {
     }
 
     /**
-     * Helper to find the most impactful topic from a list of matching configurations.
+     * Helper to find the most impactful topic from a list of matching
+     * configurations.
      */
     private TopicConfiguration findMostImpactfulTopic(List<TopicConfiguration> matchingConfigurations) {
         return matchingConfigurations.stream()
@@ -188,8 +207,9 @@ public class ConfigurationOptimizer {
     /**
      * Get the most impactful topic name for a set of topics.
      *
-     * @param metadataMessage The metadata message
-     * @param applicationTopics The list of topics that the application might produce to
+     * @param metadataMessage   The metadata message
+     * @param applicationTopics The list of topics that the application might
+     *                          produce to
      * @return The name of the most impactful topic, or null if none found
      */
     public String getMostImpactfulTopicName(MetadataMessage metadataMessage, List<String> applicationTopics) {
