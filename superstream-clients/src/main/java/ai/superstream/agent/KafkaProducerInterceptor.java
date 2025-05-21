@@ -136,13 +136,22 @@ public class KafkaProducerInterceptor {
             // Optimize the producer
             boolean success = SuperstreamManager.getInstance().optimizeProducer(bootstrapServers, clientId, properties);
             if (!success) {
-                // Restore original properties if optimization failed
-                properties.clear();
+                /*
+                 * Roll-back any changes we may have applied without wiping the whole
+                 * Properties object first.  Clearing the map created a tiny window in
+                 * which application-code that already held the reference could observe
+                 * an empty map – leading to NPEs further down the stack.  Instead we
+                 * simply overlay the original values which is functionally equivalent
+                 * but keeps the map non-empty at all times.
+                 */
                 properties.putAll(originalProperties);
             }
         } catch (Exception e) {
-            // Restore original properties on any exception
-            properties.clear();
+            /*
+             * If optimisation threw, restore the original entries but keep the map
+             * non-empty so that any other thread holding a reference never sees an
+             * empty state.
+             */
             properties.putAll(originalProperties);
             logger.error("Error during producer optimization, restored original properties", e);
         }
