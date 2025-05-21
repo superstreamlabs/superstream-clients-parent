@@ -137,11 +137,28 @@ public class SuperstreamManager {
                 return false;
             }
 
-            // Extract the optimized configuration for reporting
+            // Build optimized configuration map to report: include every key that was considered for optimisation.
             Map<String, Object> optimizedProperties = new HashMap<>();
-            for (String key : modifiedKeys) {
-                optimizedProperties.put(key, properties.get(key));
+            for (String key : optimalConfiguration.keySet()) {
+                // After applyOptimalConfiguration, 'properties' holds the final value (either overridden or original).
+                Object finalVal = properties.get(key);
+                if (finalVal == null) {
+                    // If not present in current props, fall back to original value (may be null as well)
+                    finalVal = originalProperties.get(key);
+                }
+                optimizedProperties.put(key, finalVal);
             }
+
+            // Build original filtered configuration limited to optimal keys
+            Map<String,Object> originalFiltered = new java.util.HashMap<>();
+            Map<String,Object> originalMap = convertPropertiesToMap(originalProperties);
+            for (String key : optimalConfiguration.keySet()) {
+                originalFiltered.put(key, originalMap.get(key));
+            }
+
+            // Pass configuration info via ThreadLocal to interceptor's onExit
+            ai.superstream.agent.KafkaProducerInterceptor.TL_CFG_STACK.get()
+                    .push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(originalFiltered, optimizedProperties));
 
             // Report client information
             reportClientInformation(

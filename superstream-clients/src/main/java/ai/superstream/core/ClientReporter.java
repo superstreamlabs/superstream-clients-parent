@@ -9,6 +9,7 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
+import ai.superstream.agent.KafkaProducerInterceptor;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -57,7 +58,7 @@ public class ClientReporter {
         properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        properties.put(ProducerConfig.CLIENT_ID_CONFIG, "superstreamlib-client-reporter");
+        properties.put(ProducerConfig.CLIENT_ID_CONFIG, KafkaProducerInterceptor.SUPERSTREAM_LIBRARY_PREFIX + "client-reporter");
 
         properties.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "zstd");
         properties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);  // 16KB batch size
@@ -166,7 +167,7 @@ public class ClientReporter {
     }
 
     // Helper method to copy authentication properties
-    private void copyAuthenticationProperties(Properties source, Properties destination) {
+    public static void copyAuthenticationProperties(Properties source, Properties destination) {
         // Authentication-related properties
         String[] authProps = {
                 // Security protocol
@@ -205,30 +206,49 @@ public class ClientReporter {
      * Get the version of the Superstream Clients library.
      * @return The version string
      */
-    private static String getClientVersion() {
-        // Option 1: Get version from package information
+    public static String getClientVersion() {
+        // Option 1: Get version from package information (MANIFEST Implementation-Version)
         Package pkg = ClientReporter.class.getPackage();
-        String version = pkg.getImplementationVersion();
+        String version = (pkg != null) ? pkg.getImplementationVersion() : null;
 
-        // Option 2: If option 1 returns null (e.g., when running from IDE), use a fallback
+        // Option 2: If option 1 returns null (e.g., when running from IDE), try to read from a properties file
         if (version == null) {
-            // Try to read from a properties file
-            try (InputStream input = ClientReporter.class.getResourceAsStream("/superstream-version.properties")) {
-                if (input != null) {
-                    Properties props = new Properties();
-                    props.load(input);
-                    version = props.getProperty("version");
-                }
-            } catch (IOException e) {
-                // Ignore
-            }
+            // First attempt: properties file located under META-INF (the path used during packaging)
+            version = readVersionFromProperties("/META-INF/superstream-version.properties");
 
-            // If still null, use a hardcoded fallback
+            // Second attempt: fallback to root path (older builds)
             if (version == null) {
-                version = "1.0.0"; // Default version if not found
+                version = readVersionFromProperties("/superstream-version.properties");
             }
         }
 
+        // Option 3: If still null, use a hard-coded fallback
+        if (version == null) {
+            version = ""; // Default version if not found
+        }
+
         return version;
+    }
+
+    /**
+     * Helper that tries to load the version property from the given resource path.
+     *
+     * @param resourcePath classpath resource path, e.g. "/META-INF/superstream-version.properties"
+     * @return the version value or null if not found / unreadable
+     */
+    private static String readVersionFromProperties(String resourcePath) {
+        try (InputStream input = ClientReporter.class.getResourceAsStream(resourcePath)) {
+            if (input != null) {
+                Properties props = new Properties();
+                props.load(input);
+                String v = props.getProperty("version");
+                if (v != null && !v.trim().isEmpty()) {
+                    return v.trim();
+                }
+            }
+        } catch (IOException ignored) {
+            // ignore and let caller handle fallback
+        }
+        return null;
     }
 }
