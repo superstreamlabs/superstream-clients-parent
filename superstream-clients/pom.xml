@@ -147,6 +147,13 @@
                                 <relocation>
                                     <pattern>org.apache.kafka</pattern>
                                     <shadedPattern>ai.superstream.shaded.org.apache.kafka</shadedPattern>
+                                    <excludes>
+                                        <!-- Only exclude the minimal set of interfaces needed for auth -->
+                                        <exclude>org.apache.kafka.common.security.auth.AuthenticateCallbackHandler</exclude>
+                                        <exclude>org.apache.kafka.common.security.auth.SaslExtensionsCallback</exclude>
+                                        <exclude>org.apache.kafka.common.security.auth.SaslExtensions</exclude>
+                                        <exclude>org.apache.kafka.common.security.auth.SecurityProtocol</exclude>
+                                    </excludes>
                                 </relocation>
                                 <!-- Complete SLF4J shading -->
                                 <relocation>
