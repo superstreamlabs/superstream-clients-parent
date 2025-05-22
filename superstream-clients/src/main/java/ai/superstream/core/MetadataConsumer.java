@@ -32,11 +32,11 @@ public class MetadataConsumer {
     public MetadataMessage getMetadataMessage(String bootstrapServers, Properties originalClientProperties) {
         Properties properties = new Properties();
 
-        // Copy all authentication-related and essential properties from the original client
+        // Copy all authentication-related and essential properties from the original
+        // client
         copyAuthenticationProperties(originalClientProperties, properties);
 
         properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        properties.put(ConsumerConfig.GROUP_ID_CONFIG, "superstream-metadata-consumer-" + UUID.randomUUID());
         properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
@@ -72,6 +72,7 @@ public class MetadataConsumer {
                 logger.warn("Failed to retrieve a message from the {} topic", METADATA_TOPIC);
                 return null;
             }
+            logger.info("Successfully retrieved a message from the {} topic", METADATA_TOPIC);
 
             // Parse the message
             String json = records.iterator().next().value();
