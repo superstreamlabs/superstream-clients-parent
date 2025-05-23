@@ -32,12 +32,6 @@
     </dependencyManagement>
 
     <dependencies>
-        <!-- Superstream Clients -->
-        <dependency>
-            <groupId>ai.superstream</groupId>
-            <artifactId>superstream-clients</artifactId>
-        </dependency>
-
         <!-- Spring Boot -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
