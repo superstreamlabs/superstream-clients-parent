@@ -68,7 +68,7 @@ public class KafkaProducerExample {
 
                 logger.info("All 50 large messages queued successfully! Adding a producer.flush() to send them all at once...");
                 producer.flush();
-                Thread.sleep(7000000);
+                Thread.sleep(60000);
                 logger.info("Waking up and preparing to send the next batch of messages");
 //                return;
             }
