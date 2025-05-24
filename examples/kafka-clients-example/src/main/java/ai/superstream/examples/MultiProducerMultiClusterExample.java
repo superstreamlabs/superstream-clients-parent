@@ -39,9 +39,9 @@ public class MultiProducerMultiClusterExample {
     private static final String CLUSTER1_SERVERS = System.getenv("CLUSTER1_BOOTSTRAP_SERVERS") != null ?
             System.getenv("CLUSTER1_BOOTSTRAP_SERVERS") : "localhost:9092";
     private static final String CLUSTER2_SERVERS = System.getenv("CLUSTER2_BOOTSTRAP_SERVERS") != null ?
-            System.getenv("CLUSTER2_BOOTSTRAP_SERVERS") : "localhost:9093";
+            System.getenv("CLUSTER2_BOOTSTRAP_SERVERS") : "localhost:9095";
     private static final String CLUSTER3_SERVERS = System.getenv("CLUSTER3_BOOTSTRAP_SERVERS") != null ?
-            System.getenv("CLUSTER3_BOOTSTRAP_SERVERS") : "localhost:9094";
+            System.getenv("CLUSTER3_BOOTSTRAP_SERVERS") : "localhost:9096";
 
     // Topics for different clusters
     private static final String TOPIC_CLUSTER1_A = "cluster1-topic-a";

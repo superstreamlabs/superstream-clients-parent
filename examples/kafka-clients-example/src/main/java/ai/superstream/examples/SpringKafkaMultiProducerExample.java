@@ -87,10 +87,10 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
         @Value("${cluster1.bootstrap.servers:localhost:9092}")
         private String cluster1Servers;
 
-        @Value("${cluster2.bootstrap.servers:localhost:9093}")
+        @Value("${cluster2.bootstrap.servers:localhost:9095}")
         private String cluster2Servers;
 
-        @Value("${cluster3.bootstrap.servers:localhost:9094}")
+        @Value("${cluster3.bootstrap.servers:localhost:9096}")
         private String cluster3Servers;
 
         @Value("${spring.kafka.compression:snappy}")
