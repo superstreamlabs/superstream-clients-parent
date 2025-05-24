@@ -43,7 +43,7 @@ public class CustomProducerMultiClusterExample {
     private static final String CLUSTER1_SERVERS = System.getenv("CLUSTER1_BOOTSTRAP_SERVERS") != null ?
             System.getenv("CLUSTER1_BOOTSTRAP_SERVERS") : "localhost:9092";
     private static final String CLUSTER2_SERVERS = System.getenv("CLUSTER2_BOOTSTRAP_SERVERS") != null ?
-            System.getenv("CLUSTER2_BOOTSTRAP_SERVERS") : "localhost:9093";
+            System.getenv("CLUSTER2_BOOTSTRAP_SERVERS") : "localhost:9095";
 
     // Feature flags
     private static final boolean ENABLE_METRICS_LOGGING = "true".equalsIgnoreCase(System.getenv("ENABLE_METRICS_LOGGING"));
@@ -246,7 +246,7 @@ public class CustomProducerMultiClusterExample {
             String clientId, String bootstrapServers, int maxRetries, long retryBackoffMs) {
         Properties props = createBaseProperties(clientId, bootstrapServers);
         // Set lower retries in Kafka config since we handle retries in custom logic
-        props.put(ProducerConfig.RETRIES_CONFIG, 0);
+        props.put(ProducerConfig.RETRIES_CONFIG, 1);
         return new RetryableProducer<>(props, maxRetries, retryBackoffMs);
     }
 
