@@ -42,8 +42,8 @@ java -javaagent:superstream-clients-1.0.0.jar -jar kafka-clients-example.jar
 ```bash
 # Configure clusters
 export CLUSTER1_BOOTSTRAP_SERVERS=localhost:9092
-export CLUSTER2_BOOTSTRAP_SERVERS=localhost:9093  
-export CLUSTER3_BOOTSTRAP_SERVERS=localhost:9094
+export CLUSTER2_BOOTSTRAP_SERVERS=localhost:9095  
+export CLUSTER3_BOOTSTRAP_SERVERS=localhost:9096
 
 # Optimize only specific topics
 export SUPERSTREAM_TOPICS_LIST=cluster1-topic-a,cluster2-topic
