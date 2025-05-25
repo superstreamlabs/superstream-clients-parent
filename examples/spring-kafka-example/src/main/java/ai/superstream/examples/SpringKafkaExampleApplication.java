@@ -7,23 +7,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import ai.superstream.examples.config.KafkaProperties;
 
-/**
- * Example Spring Boot application that uses Spring Kafka to produce messages.
- * Run with:
- * java -javaagent:path/to/superstream-clients-1.0.0.jar -jar spring-kafka-example-1.0.0.jar
- *
- * Prerequisites:
- * 1. A Kafka server with the following topics:
- *    - superstream.metadata_v1 - with a configuration message
- *    - superstream.clients - for client reports
- *    - example-topic - for test messages
- *
- * Environment variables:
- * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default: localhost:9092)
- * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for (default: example-topic)
- */
 @SpringBootApplication
+@EnableConfigurationProperties(KafkaProperties.class)
 public class SpringKafkaExampleApplication {
     private static final Logger logger = LoggerFactory.getLogger(SpringKafkaExampleApplication.class);
 
@@ -32,18 +20,24 @@ public class SpringKafkaExampleApplication {
     }
 
     @Bean
-    public CommandLineRunner runner(KafkaTemplate<String, String> kafkaTemplate) {
+    public CommandLineRunner runner(KafkaTemplate<String, String> kafkaTemplate, KafkaProperties kafkaProperties) {
         return args -> {
-            String topic = "example-topic";
-            String key = "test-key";
-            String value = "Hello, Superstream with Spring Kafka!";
+            try {
+                String topic = kafkaProperties.getTopic();
+                String key = "test-key";
+                String value = "Hello, Superstream with Spring Kafka!";
 
-            logger.info("Sending message to topic {}: key={}, value={}", topic, key, value);
-            kafkaTemplate.send(topic, key, value).get();
-            logger.info("Message sent successfully!");
+                logger.info("Sending message to topic {}: key={}, value={}", topic, key, value);
+                try (TemplateKafkaProducer producer = new TemplateKafkaProducer(kafkaTemplate)) {
+                    producer.send(new org.apache.kafka.clients.producer.ProducerRecord<>(topic, key, value)).get();
+                }
+                logger.info("Message sent successfully!");
 
-            // Wait a moment to allow all logs to be printed
-            Thread.sleep(1000);
+                // Wait a moment to allow all logs to be printed
+                Thread.sleep(1000);
+            } catch (Exception e) {
+                logger.error("Error sending message", e);
+            }
             System.exit(0);
         };
     }

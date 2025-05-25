@@ -1,14 +1,12 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="kafka clients example" type="Application" factoryName="Application">
     <envs>
-      <env name="SUPERSTREAM_TOPICS_LIST" value="cluster1-topic-a,cluster2-topic,cluster3-topic,example-topic,custom-producer-topic-1,spring-kafka-topic-1a,spring-topic-1a" />
+      <env name="SUPERSTREAM_TOPICS_LIST" value="example-topic,idan" />
       <env name="SUPERSTREAM_DEBUG" value="true" />
-      <env name="SUPERSTREAM_LATENCY_SENSITIVE" value="true" />
-      <env name="SUPERSTREAM_DISABLED" value="false" />
     </envs>
-    <option name="MAIN_CLASS_NAME" value="ai.superstream.examples.SpringKafkaMultiProducerExample" />
+    <option name="MAIN_CLASS_NAME" value="ai.superstream.examples.KafkaProducerExample" />
     <module name="kafka-clients-example" />
-    <option name="VM_PARAMETERS" value="-javaagent:$PROJECT_DIR$/superstream-clients/target/superstream-clients-1.0.14.jar -Dlogback.configurationFile=src/main/resources/logback.xml" />
+    <option name="VM_PARAMETERS" value="-javaagent:$PROJECT_DIR$/superstream-clients/target/superstream-clients-1.0.15.jar" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/examples/kafka-clients-example" />
     <method v="2">
       <option name="Make" enabled="true" />
