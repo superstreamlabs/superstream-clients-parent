@@ -853,12 +853,19 @@ public class KafkaProducerInterceptor {
                             nameMethod.setAccessible(true);
                             groupMethod.setAccessible(true);
 
-                            String name = nameMethod.invoke(key).toString();
-                            String group = groupMethod.invoke(key).toString();
+                            Object nameObj = nameMethod.invoke(key);
+                            Object groupObj = groupMethod.invoke(key);
+                            
+                            if (nameObj == null || groupObj == null) {
+                                continue;
+                            }
+                            
+                            String name = nameObj.toString();
+                            String group = groupObj.toString();
 
                             // Only accept metrics from producer-metrics group
-                            if (group.equals("producer-metrics") &&
-                                    (name.equals("compression-rate-avg") || name.equals("compression-ratio"))) {
+                            if ("producer-metrics".equals(group) &&
+                                    ("compression-rate-avg".equals(name) || "compression-ratio".equals(name))) {
 
                                 double value = extractMetricValue(entry.getValue());
                                 if (value > 0) {
@@ -908,10 +915,17 @@ public class KafkaProducerInterceptor {
                                 if (nameMethod != null && groupMethod != null) {
                                     nameMethod.setAccessible(true);
                                     groupMethod.setAccessible(true);
-                                    String name = nameMethod.invoke(key).toString();
-                                    String group = groupMethod.invoke(key).toString();
+                                    Object nameObj = nameMethod.invoke(key);
+                                    Object groupObj = groupMethod.invoke(key);
 
-                                    if (group.equals(targetGroup)) {
+                                    if (nameObj == null || groupObj == null) {
+                                        continue;
+                                    }
+                                    
+                                    String name = nameObj.toString();
+                                    String group = groupObj.toString();
+
+                                    if (targetGroup.equals(group)) {
                                         for (String n : candidateNames) {
                                             if (n.equals(name)) {
                                                 double val = extractMetricValue(entry.getValue());

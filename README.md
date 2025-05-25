@@ -31,6 +31,97 @@ Works with any Java library that depends on `kafka-clients`, including:
 - **Intelligent optimization**: Identifies the most impactful topics to optimize
 - **Graceful fallback**: Falls back to default settings if optimization fails
 
+## Important: Producer Configuration Requirements
+
+When initializing your Kafka producers, please ensure you pass the configuration as a mutable object. The Superstream library needs to modify the producer configuration to apply optimizations. The following initialization patterns are supported:
+
+✅ **Supported (Recommended)**:
+```java
+// Using Properties (recommended)
+Properties props = new Properties();
+props.put("bootstrap.servers", "localhost:9092");
+// ... other properties ...
+KafkaProducer<String, String> producer = new KafkaProducer<>(props);
+
+// Using a regular HashMap
+Map<String, Object> config = new HashMap<>();
+config.put("bootstrap.servers", "localhost:9092");
+// ... other properties ...
+KafkaProducer<String, String> producer = new KafkaProducer<>(config);
+
+// Using Spring's @Value annotations and configuration loading
+@Configuration
+public class KafkaConfig {
+    @Value("${spring.kafka.bootstrap-servers}")
+    private String bootstrapServers;
+    // ... other properties ...
+
+    @Bean
+    public ProducerFactory<String, String> producerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        // ... other properties ...
+        return new DefaultKafkaProducerFactory<>(configProps);
+    }
+}
+```
+
+❌ **Not Supported**:
+```java
+// Using Collections.unmodifiableMap
+Map<String, Object> config = Collections.unmodifiableMap(new HashMap<>());
+KafkaProducer<String, String> producer = new KafkaProducer<>(config);
+
+// Using Map.of() (creates unmodifiable map)
+KafkaProducer<String, String> producer = new KafkaProducer<>(
+    Map.of("bootstrap.servers", "localhost:9092")
+);
+
+// Using ProducerConfig.originals() which returns an unmodifiable copy
+ProducerConfig config = new ProducerConfig(props);
+KafkaProducer<String, String> producer = new KafkaProducer<>(config.originals());
+
+// Using KafkaTemplate's getProducerFactory().getConfigurationProperties()
+// which returns an unmodifiable map
+KafkaTemplate<String, String> template = new KafkaTemplate<>(producerFactory);
+KafkaProducer<String, String> producer = new KafkaProducer<>(
+    template.getProducerFactory().getConfigurationProperties()
+);
+```
+
+### Spring Applications
+Spring applications that use `@Value` annotations and Spring's configuration loading (like `application.yml` or `application.properties`) are fully supported. The Superstream library will be able to modify the configuration when it's loaded into a mutable `Map` or `Properties` object in your Spring configuration class.
+
+Example of supported Spring configuration:
+```yaml
+# application.yml
+spring:
+  kafka:
+    producer:
+      properties:
+        compression.type: snappy
+        batch.size: 16384
+        linger.ms: 1
+```
+
+```java
+@Configuration
+public class KafkaConfig {
+    @Value("${spring.kafka.producer.properties.compression.type}")
+    private String compressionType;
+    
+    @Bean
+    public ProducerFactory<String, String> producerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, compressionType);
+        return new DefaultKafkaProducerFactory<>(configProps);
+    }
+}
+```
+
+### Why This Matters
+The Superstream library needs to modify your producer's configuration to apply optimizations based on your cluster's characteristics. This includes adjusting settings like compression, batch size, and other performance parameters. When the configuration is immutable, these optimizations cannot be applied.
+
 ## Installation
 
 *Superstream package*: https://central.sonatype.com/artifact/ai.superstream/superstream-clients-java/overview
