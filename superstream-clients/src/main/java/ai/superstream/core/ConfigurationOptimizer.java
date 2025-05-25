@@ -38,7 +38,9 @@ public class ConfigurationOptimizer {
         }
 
         // Get all matching topic configurations
-        List<TopicConfiguration> matchingConfigurations = metadataMessage.getTopicsConfiguration().stream()
+        List<TopicConfiguration> topics = Optional.ofNullable(metadataMessage.getTopicsConfiguration())
+                .orElse(Collections.emptyList());
+        List<TopicConfiguration> matchingConfigurations = topics.stream()
                 .filter(config -> applicationTopics.contains(config.getTopicName()))
                 .collect(Collectors.toList());
 
@@ -102,6 +104,11 @@ public class ConfigurationOptimizer {
         for (Map.Entry<String, Object> entry : optimalConfiguration.entrySet()) {
             String key = entry.getKey();
             Object value = entry.getValue();
+            
+            if (value == null) {
+                logger.warn("Skipping null value for configuration key: {}", key);
+                continue;
+            }
 
             // Skip linger.ms optimization if the application is latency-sensitive
             if ("linger.ms".equals(key) && isLatencySensitive()) {
@@ -166,6 +173,10 @@ public class ConfigurationOptimizer {
     }
 
     private boolean isValidConfiguration(String key, Object value) {
+        if (value == null) {
+            logger.warn("Invalid null value for configuration key: {}", key);
+            return false;
+        }
         try {
             if ("compression.type".equals(key)) {
                 String compressionType = value.toString();
@@ -213,7 +224,9 @@ public class ConfigurationOptimizer {
      * @return The name of the most impactful topic, or null if none found
      */
     public String getMostImpactfulTopicName(MetadataMessage metadataMessage, List<String> applicationTopics) {
-        List<TopicConfiguration> matchingConfigurations = metadataMessage.getTopicsConfiguration().stream()
+        List<TopicConfiguration> topics = Optional.ofNullable(metadataMessage.getTopicsConfiguration())
+                .orElse(Collections.emptyList());
+        List<TopicConfiguration> matchingConfigurations = topics.stream()
                 .filter(config -> applicationTopics.contains(config.getTopicName()))
                 .collect(Collectors.toList());
         if (matchingConfigurations.isEmpty()) {

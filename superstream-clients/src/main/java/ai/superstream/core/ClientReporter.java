@@ -168,6 +168,10 @@ public class ClientReporter {
 
     // Helper method to copy authentication properties
     public static void copyAuthenticationProperties(Properties source, Properties destination) {
+        if (source == null || destination == null) {
+            logger.warn("Cannot copy authentication properties: source or destination is null");
+            return;
+        }
         // Authentication-related properties
         String[] authProps = {
                 // Security protocol

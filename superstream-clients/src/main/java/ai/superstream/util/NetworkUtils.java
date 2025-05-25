@@ -26,6 +26,10 @@ public class NetworkUtils {
         try {
             // Try to get the primary network interface's IP address
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            if (interfaces == null) {
+                logger.warn("No network interfaces found");
+                return "unknown";
+            }
             while (interfaces.hasMoreElements()) {
                 NetworkInterface networkInterface = interfaces.nextElement();
                 if (networkInterface.isLoopback() || !networkInterface.isUp()) {
