@@ -50,10 +50,9 @@ public class SuperstreamAgent {
         // Intercept KafkaProducer constructor for both configuration optimization and metrics collection
         new AgentBuilder.Default()
                 .disableClassFormatChanges()
-                .type(ElementMatchers.nameEndsWith("KafkaProducer"))
-                .transform((builder, typeDescription, classLoader, module,
-                        protectionDomain) -> builder
-                            .visit(Advice.to(KafkaProducerInterceptor.class)
+                .type(ElementMatchers.nameEndsWith(".KafkaProducer"))
+                .transform((builder, td, cl, module, pd) -> builder
+                        .visit(Advice.to(KafkaProducerInterceptor.class)
                                 .on(ElementMatchers.isConstructor())))
                 .installOn(instrumentation);
 

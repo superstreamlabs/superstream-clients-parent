@@ -149,6 +149,19 @@ public class SuperstreamManager {
                 optimizedProperties.put(key, finalVal);
             }
 
+            // If the application is latency-sensitive we leave linger.ms untouched. Ensure we still report its value
+            // so that the clients topic contains the complete set actually in effect.
+            final String LINGER_MS_KEY = "linger.ms";
+            if (!optimizedProperties.containsKey(LINGER_MS_KEY)) {
+                Object lingerVal = properties.get(LINGER_MS_KEY);
+                if (lingerVal == null) {
+                    lingerVal = originalProperties.get(LINGER_MS_KEY);
+                }
+                if (lingerVal != null) {
+                    optimizedProperties.put(LINGER_MS_KEY, lingerVal);
+                }
+            }
+
             // Build original filtered configuration limited to optimal keys
             Map<String,Object> originalFiltered = new java.util.HashMap<>();
             Map<String,Object> originalMap = convertPropertiesToMap(originalProperties);
