@@ -299,6 +299,7 @@ public class KafkaProducerInterceptor {
                 } catch (ClassCastException e) {
                     // Not the map type we expected
                     logger.error("extractProperties: Could not cast Map to Map<String, Object>", e);
+                    return null;
                 }
             }
 
