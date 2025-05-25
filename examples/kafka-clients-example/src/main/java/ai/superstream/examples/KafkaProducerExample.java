@@ -9,27 +9,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Properties;
+import java.util.*;
 
-/**
- * Example application that uses the Kafka Clients API to produce messages.
- * Run with:
- * java -javaagent:path/to/superstream-clients-1.0.0.jar
- * -Dlogback.configurationFile=logback.xml -jar
- * kafka-clients-example-1.0.0-jar-with-dependencies.jar
- *
- * Prerequisites:
- * 1. A Kafka server with the following topics:
- * - superstream.metadata_v1 - with a configuration message
- * - superstream.clients - for client reports
- * - example-topic - for test messages
- *
- * Environment variables:
- * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default:
- * localhost:9092)
- * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for
- * (default: example-topic)
- */
 public class KafkaProducerExample {
     private static final Logger logger = LoggerFactory.getLogger(KafkaProducerExample.class);
 
@@ -37,8 +18,8 @@ public class KafkaProducerExample {
     private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
 
     private static final String CLIENT_ID = "superstream-example-producer";
-    private static final String COMPRESSION_TYPE = "zstd";  // Changed from gzip to snappy for better visibility
-    private static final Integer BATCH_SIZE = 1048576; // 1MB batch size
+    private static final String COMPRESSION_TYPE = "none"; // Changed from gzip to snappy for better visibility
+    private static final Integer BATCH_SIZE = 10; // 1MB batch size
 
     private static final String TOPIC_NAME = "example-topic";
     private static final String MESSAGE_KEY = "test-key";
@@ -46,31 +27,29 @@ public class KafkaProducerExample {
     private static final String MESSAGE_VALUE = generateLargeCompressibleMessage();
 
     public static void main(String[] args) {
-        Properties props = new Properties();
+        // Create a Map with the configuration
+        Map<String, Object> props = new HashMap<>();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, DEFAULT_BOOTSTRAP_SERVERS);
-        props.put("client.id", CLIENT_ID);
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, CLIENT_ID);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
-        props.put(ProducerConfig.LINGER_MS_CONFIG, 500); // Force batching by waiting 500ms
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 500);
+
 
         long recordCount = 50; // Number of messages to send
         try (Producer<String, String> producer = new KafkaProducer<>(props)) {
             while (true) {
                 // Send 50 large messages to see compression benefits
-                logger.info("Starting to send {} large messages...", recordCount);
                 for (int i = 1; i <= recordCount; i++) {
                     String messageKey = MESSAGE_KEY + "-" + i;
                     String messageValue = MESSAGE_VALUE + "-" + i + "-" + System.currentTimeMillis();
                     producer.send(new ProducerRecord<>(TOPIC_NAME, messageKey, messageValue));
                 }
 
-                logger.info("All 50 large messages queued successfully! Adding a producer.flush() to send them all at once...");
                 producer.flush();
-                Thread.sleep(7000000);
-                logger.info("Waking up and preparing to send the next batch of messages");
-//                return;
+                Thread.sleep(100000);
             }
         } catch (Exception e) {
             logger.error("Error sending message", e);
@@ -88,10 +67,11 @@ public class KafkaProducerExample {
         json.append("  },\n");
         json.append("  \"data\": {\n");
         json.append("    \"metrics\": [\n");
-        
+
         // Add repeating metrics data to reach ~1KB
         for (int i = 0; i < 15; i++) {
-            if (i > 0) json.append(",\n");
+            if (i > 0)
+                json.append(",\n");
             json.append("      {\n");
             json.append("        \"name\": \"metric").append(i).append("\",\n");
             json.append("        \"value\": ").append(i * 10).append(",\n");
@@ -102,7 +82,7 @@ public class KafkaProducerExample {
             json.append("        }\n");
             json.append("      }");
         }
-        
+
         json.append("\n    ]\n");
         json.append("  },\n");
         json.append("  \"config\": {\n");
@@ -112,10 +92,10 @@ public class KafkaProducerExample {
         json.append("    \"encryption\": false\n");
         json.append("  }\n");
         json.append("}");
-        
+
         String result = json.toString();
         logger.debug("Generated compressible message of {} bytes", result.getBytes(StandardCharsets.UTF_8).length);
-        
+
         return result;
     }
 }

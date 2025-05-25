@@ -98,7 +98,20 @@ public class KafkaProducerInterceptor {
         // Extract Properties or Map from the arguments and push onto the stack
         Properties properties = extractProperties(args);
         if (properties != null) {
+            // Replace the original Map argument with our Properties instance so that
+            // the KafkaProducer constructor reads the optimised values.
+            for (int i = 0; i < args.length; i++) {
+                Object a = args[i];
+                if (a instanceof java.util.Map && !(a instanceof java.util.Properties)) {
+                    args[i] = properties;
+                    break;
+                }
+            }
+
             TL_PROPS_STACK.get().push(properties);
+        }  else {
+          logger.error("Could not extract properties from producer arguments");
+          return;
         }
 
         // Make a copy of the original properties in case we need to restore them
@@ -246,41 +259,52 @@ public class KafkaProducerInterceptor {
      */
     public static Properties extractProperties(Object[] args) {
         // Look for Properties or Map in the arguments
+        if (args == null) {
+            logger.error("extractProperties: args array is null");
+            return null;
+        }
+
+        logger.debug("extractProperties: Processing {} arguments", args.length);
         for (Object arg : args) {
-            if (arg == null)
+            if (arg == null) {
+                logger.debug("extractProperties: Found null argument");
                 continue;
+            }
+
+            String className = arg.getClass().getName();
+            logger.debug("extractProperties: Processing argument of type: {}", className);
 
             if (arg instanceof Properties) {
+                logger.debug("extractProperties: Found Properties object");
                 return (Properties) arg;
             }
 
             if (arg instanceof Map) {
+                logger.debug("extractProperties: Found Map object of type: {}", arg.getClass().getName());
+
+                // If the map is unmodifiable we cannot change producer configuration -> cannot optimise
+                if (arg.getClass().getName().contains("UnmodifiableMap")) {
+                    logger.error("Cannot optimize KafkaProducer configuration: received an unmodifiable Map ({}). " +
+                                 "Please pass a mutable java.util.Properties or java.util.Map instead.",
+                                 arg.getClass().getName());
+                    return null; // signal caller to skip optimisation
+                }
+
                 try {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> map = (Map<String, Object>) arg;
-                    Properties props = new Properties();
-                    for (Map.Entry<String, Object> entry : map.entrySet()) {
-                        if (entry.getValue() != null) {
-                            // Handle bootstrap.servers when passed as a List
-                            if (entry.getKey().equals("bootstrap.servers") && entry.getValue() instanceof List) {
-                                @SuppressWarnings("unchecked")
-                                List<String> servers = (List<String>) entry.getValue();
-                                props.put(entry.getKey(), String.join(",", servers));
-                            } else {
-                                props.put(entry.getKey(), entry.getValue());
-                            }
-                        }
-                    }
+                    Properties props = new MapBackedProperties(map);
+                    logger.debug("extractProperties: Successfully converted Map to Properties");
                     return props;
                 } catch (ClassCastException e) {
                     // Not the map type we expected
-                    logger.debug("Could not cast Map to Map<String, Object>");
+                    logger.error("extractProperties: Could not cast Map to Map<String, Object>", e);
                 }
             }
 
             // Handle ProducerConfig object which contains properties
-            String className = arg.getClass().getName();
             if (className.endsWith("ProducerConfig")) {
+                logger.debug("extractProperties: Found ProducerConfig object");
                 try {
                     // Try multiple possible field names
                     String[] fieldNames = { "originals", "values", "props", "properties", "configs" };
@@ -290,36 +314,32 @@ public class KafkaProducerInterceptor {
                             Field field = arg.getClass().getDeclaredField(fieldName);
                             field.setAccessible(true);
                             Object fieldValue = field.get(arg);
+                            logger.debug("extractProperties: Found field {} with value type: {}", fieldName,
+                                    fieldValue != null ? fieldValue.getClass().getName() : "null");
 
                             if (fieldValue instanceof Map) {
                                 @SuppressWarnings("unchecked")
                                 Map<String, Object> map = (Map<String, Object>) fieldValue;
 
-                                Properties props = new Properties();
-                                for (Map.Entry<String, Object> entry : map.entrySet()) {
-                                    if (entry.getValue() != null) {
-                                        // Handle bootstrap.servers when passed as a List
-                                        if (entry.getKey().equals("bootstrap.servers")
-                                                && entry.getValue() instanceof List) {
-                                            @SuppressWarnings("unchecked")
-                                            List<String> servers = (List<String>) entry.getValue();
-                                            props.put(entry.getKey(), String.join(",", servers));
-                                        } else {
-                                            props.put(entry.getKey(), entry.getValue());
-                                        }
-                                    }
-                                }
+                                Properties props = new MapBackedProperties(map);
+                                logger.debug(
+                                        "extractProperties: Successfully converted ProducerConfig field {} to Properties",
+                                        fieldName);
                                 return props;
                             } else if (fieldValue instanceof Properties) {
+                                logger.debug("extractProperties: Found Properties in ProducerConfig field {}",
+                                        fieldName);
                                 return (Properties) fieldValue;
                             }
                         } catch (NoSuchFieldException e) {
                             // Field doesn't exist, try the next one
+                            logger.error("extractProperties: Field {} not found in ProducerConfig", fieldName);
                             continue;
                         }
                     }
 
                     // Try to call getters if field access failed
+                    logger.debug("extractProperties: Trying getter methods for ProducerConfig");
                     for (Method method : arg.getClass().getMethods()) {
                         if ((method.getName().equals("originals") ||
                                 method.getName().equals("values") ||
@@ -332,26 +352,20 @@ public class KafkaProducerInterceptor {
                                 method.getParameterCount() == 0) {
 
                             Object result = method.invoke(arg);
+                            logger.debug("extractProperties: Called method {} with result type: {}", method.getName(),
+                                    result != null ? result.getClass().getName() : "null");
                             if (result instanceof Map) {
                                 @SuppressWarnings("unchecked")
                                 Map<String, Object> map = (Map<String, Object>) result;
 
-                                Properties props = new Properties();
-                                for (Map.Entry<String, Object> entry : map.entrySet()) {
-                                    if (entry.getValue() != null) {
-                                        // Handle bootstrap.servers when passed as a List
-                                        if (entry.getKey().equals("bootstrap.servers")
-                                                && entry.getValue() instanceof List) {
-                                            @SuppressWarnings("unchecked")
-                                            List<String> servers = (List<String>) entry.getValue();
-                                            props.put(entry.getKey(), String.join(",", servers));
-                                        } else {
-                                            props.put(entry.getKey(), entry.getValue());
-                                        }
-                                    }
-                                }
+                                Properties props = new MapBackedProperties(map);
+                                logger.debug(
+                                        "extractProperties: Successfully converted ProducerConfig method {} result to Properties",
+                                        method.getName());
                                 return props;
                             } else if (result instanceof Properties) {
+                                logger.debug("extractProperties: Found Properties in ProducerConfig method {} result",
+                                        method.getName());
                                 return (Properties) result;
                             }
                         }
@@ -359,6 +373,7 @@ public class KafkaProducerInterceptor {
 
                     // Last resort: Try to get the ProducerConfig's bootstrap.servers value
                     // and create a minimal Properties object
+                    logger.debug("extractProperties: Trying last resort method to get bootstrap.servers");
                     for (Method method : arg.getClass().getMethods()) {
                         if (method.getName().equals("getString") && method.getParameterCount() == 1) {
                             try {
@@ -371,20 +386,25 @@ public class KafkaProducerInterceptor {
                                     if (clientId != null) {
                                         minProps.put("client.id", clientId);
                                     }
+                                    logger.debug(
+                                            "extractProperties: Created minimal Properties with bootstrap.servers and client.id");
                                     return minProps;
                                 }
                             } catch (Exception e) {
-                                logger.debug("Failed to get bootstrap.servers from ProducerConfig");
+                                logger.debug("extractProperties: Failed to get bootstrap.servers from ProducerConfig",
+                                        e);
                             }
                         }
                     }
 
                 } catch (Exception e) {
-                    logger.debug("Failed to extract properties from ProducerConfig: " + e.getMessage());
+                    logger.error("extractProperties: Failed to extract properties from ProducerConfig: {}",
+                            e.getMessage(), e);
                 }
             }
         }
 
+        logger.error("extractProperties: No valid configuration object found in arguments");
         return null;
     }
 
@@ -403,8 +423,16 @@ public class KafkaProducerInterceptor {
         for (int i = 1; i < stackTrace.length; i++) {
             String className = stackTrace[i].getClassName();
 
-            // Look for KafkaProducer in the class name
-            if (className.endsWith("KafkaProducer")) {
+            // Only treat the *actual* KafkaProducer class (or its anonymous / inner classes) as a match.
+            // This avoids counting user subclasses such as TemplateKafkaProducer which also end with the
+            // same suffix and would otherwise be mistaken for an internal constructor delegation.
+            String simpleName;
+            int lastDotIdx = className.lastIndexOf('.');
+            simpleName = (lastDotIdx >= 0) ? className.substring(lastDotIdx + 1) : className;
+
+            boolean isKafkaProducerClass = simpleName.equals("KafkaProducer") || simpleName.startsWith("KafkaProducer$");
+
+            if (isKafkaProducerClass) {
                 foundKafkaProducer = true;
                 kafkaProducerCount++;
 
@@ -759,9 +787,9 @@ public class KafkaProducerInterceptor {
                                         }
                                     }
                                 } catch (Exception ignore) {}
+                                }
                             }
                         }
-                    }
                 } catch (Exception ignore) {}
 
                 if (!newTopics.isEmpty()) {
@@ -1010,6 +1038,39 @@ public class KafkaProducerInterceptor {
         public ConfigInfo(java.util.Map<String,Object> orig, java.util.Map<String,Object> opt) {
             this.originalConfig = orig;
             this.optimizedConfig = opt;
+        }
+    }
+
+    /**
+     * A Properties view that writes through to a backing Map, ensuring updates are visible
+     * to code that continues to use the original Map instance.
+     */
+    public static class MapBackedProperties extends java.util.Properties {
+        private static final long serialVersionUID = 1L;
+        private final java.util.Map<String,Object> backing;
+
+        public MapBackedProperties(java.util.Map<String,Object> backing) {
+            this.backing = backing;
+            super.putAll(backing);
+        }
+
+        @Override
+        public synchronized Object put(Object key, Object value) {
+            try { backing.put(String.valueOf(key), value); } catch (UnsupportedOperationException ignored) {}
+            return super.put(key, value);
+        }
+
+        @Override
+        public synchronized Object remove(Object key) {
+            try { backing.remove(String.valueOf(key)); } catch (UnsupportedOperationException ignored) {}
+            return super.remove(key);
+        }
+
+        @Override
+        public synchronized void putAll(java.util.Map<?,?> m) {
+            for (java.util.Map.Entry<?,?> e : m.entrySet()) {
+                put(e.getKey(), e.getValue());
+            }
         }
     }
 }

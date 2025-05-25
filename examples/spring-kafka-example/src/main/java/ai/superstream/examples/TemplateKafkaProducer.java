@@ -15,8 +15,19 @@ import org.springframework.kafka.core.KafkaTemplate;
 public class TemplateKafkaProducer extends KafkaProducer<String, String> {
 
     public TemplateKafkaProducer(KafkaTemplate<String, String> kafkaTemplate) {
-        // Delegate to the regular KafkaProducer(Map<String,Object>) constructor
-        // by extracting the configuration from the template's producer factory.
-        super(kafkaTemplate.getProducerFactory().getConfigurationProperties());
+        // Spring returns an unmodifiable Map; create a mutable copy so the
+        // Superstream optimiser (and KafkaProducer itself) can adjust values.
+        super(toProperties(kafkaTemplate.getProducerFactory().getConfigurationProperties()));
+    }
+
+    private static java.util.Properties toProperties(java.util.Map<String, Object> config) {
+        java.util.Map<String,Object> mutable = toMutableMap(config);
+        java.util.Properties props = new java.util.Properties();
+        props.putAll(mutable);
+        return props;
+    }
+
+    private static java.util.Map<String, Object> toMutableMap(java.util.Map<String, Object> config) {
+        return (java.util.Map<String, Object>) config;
     }
 } 
