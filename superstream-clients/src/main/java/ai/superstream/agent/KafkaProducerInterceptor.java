@@ -123,6 +123,32 @@ public class KafkaProducerInterceptor {
           return;
         }
 
+        // Detect immutable Map argument (e.g., Collections.unmodifiableMap) so we can skip optimisation early
+        boolean immutableConfigDetected = false;
+        java.util.Map<String,Object> immutableOriginalMap = null;
+        for (Object arg : args) {
+            if (arg instanceof java.util.Map && arg.getClass().getName().contains("UnmodifiableMap")) {
+                immutableConfigDetected = true;
+                @SuppressWarnings("unchecked")
+                java.util.Map<String,Object> tmp = (java.util.Map<String,Object>) arg;
+                immutableOriginalMap = tmp;
+                break;
+            }
+        }
+
+        if (immutableConfigDetected && immutableOriginalMap != null) {
+            String errMsg = String.format("[ERR-010] Cannot optimize KafkaProducer configuration: received an unmodifiable Map (%s). Please pass a mutable java.util.Properties or java.util.Map instead.",
+                    immutableOriginalMap.getClass().getName());
+            logger.error(errMsg);
+
+            // Clean up ThreadLocals so that onExit knows to skip reporter setup
+            TL_PROPS_STACK.remove();
+            TL_UUID_STACK.remove();
+
+            // Do NOT attempt optimisation
+            return;
+        }
+
         // Make a copy of the original properties in case we need to restore them
         Properties originalProperties = new Properties();
         originalProperties.putAll(properties);
@@ -286,14 +312,7 @@ public class KafkaProducerInterceptor {
             if (arg instanceof Map) {
                 logger.debug("extractProperties: Found Map object of type: {}", arg.getClass().getName());
 
-                // If the map is unmodifiable we cannot change producer configuration -> cannot optimise
-                if (arg.getClass().getName().contains("UnmodifiableMap")) {
-                    logger.error("[ERR-010] Cannot optimize KafkaProducer configuration: received an unmodifiable Map ({}). " +
-                                 "Please pass a mutable java.util.Properties or java.util.Map instead.",
-                                 arg.getClass().getName());
-                    return null; // signal caller to skip optimisation
-                }
-
+                // If the map is unmodifiable we cannot actually modify it later; we still let the caller decide
                 try {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> map = (Map<String, Object>) arg;

@@ -27,19 +27,23 @@ public class KafkaProducerExample {
     private static final String MESSAGE_VALUE = generateLargeCompressibleMessage();
 
     public static void main(String[] args) {
-        // Create a Map with the configuration
-        Map<String, Object> props = new HashMap<>();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, DEFAULT_BOOTSTRAP_SERVERS);
-        props.put(ProducerConfig.CLIENT_ID_CONFIG, CLIENT_ID);
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
-        props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
-        props.put(ProducerConfig.LINGER_MS_CONFIG, 500);
+        // Build the configuration map first using a mutable map
+        Map<String, Object> mutableProps = new java.util.HashMap<>();
+        mutableProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, DEFAULT_BOOTSTRAP_SERVERS);
+        mutableProps.put(ProducerConfig.CLIENT_ID_CONFIG, CLIENT_ID);
+        mutableProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        mutableProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        mutableProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
+        mutableProps.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
+        mutableProps.put(ProducerConfig.LINGER_MS_CONFIG, 500);
 
+        // Wrap the map to make it immutable – simulates a user supplying an unmodifiable configuration object
+        // Map<String, Object> props = java.util.Collections.unmodifiableMap(mutableProps);
+
+        // Pass the immutable map directly to the KafkaProducer constructor
+        Producer<String, String> producer = new KafkaProducer<String, String>(mutableProps);
 
         long recordCount = 50; // Number of messages to send
-        Producer<String, String> producer = new KafkaProducer<>(props);
         try {
             while (true) {
                 // Send 50 large messages to see compression benefits

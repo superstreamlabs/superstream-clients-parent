@@ -271,7 +271,6 @@ public class SuperstreamManager {
                     clientId,
                     originalConfiguration1,
                     optimizedConfiguration,
-                    topics,
                     mostImpactfulTopic,
                     producerUuid
             );

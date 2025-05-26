@@ -77,10 +77,6 @@ KafkaProducer<String, String> producer = new KafkaProducer<>(
     Map.of("bootstrap.servers", "localhost:9092")
 );
 
-// Using ProducerConfig.originals() which returns an unmodifiable copy
-ProducerConfig config = new ProducerConfig(props);
-KafkaProducer<String, String> producer = new KafkaProducer<>(config.originals());
-
 // Using KafkaTemplate's getProducerFactory().getConfigurationProperties()
 // which returns an unmodifiable map
 KafkaTemplate<String, String> template = new KafkaTemplate<>(producerFactory);
