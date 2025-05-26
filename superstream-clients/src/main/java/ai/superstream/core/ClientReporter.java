@@ -88,22 +88,12 @@ public class ClientReporter {
 
             // Send the message
             ProducerRecord<String, String> record = new ProducerRecord<>(CLIENTS_TOPIC, json);
-            producer.send(record).get(10, TimeUnit.SECONDS);
+            producer.send(record);
             producer.flush();
             producer.close();
 
             logger.debug("Successfully reported client information to {}", CLIENTS_TOPIC);
             return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.error("[ERR-023] Interrupted while reporting client information", e);
-            return false;
-        } catch (ExecutionException e) {
-            logger.error("[ERR-024] Failed to report client information", e);
-            return false;
-        } catch (TimeoutException e) {
-            logger.error("[ERR-025] Timed out while reporting client information", e);
-            return false;
         } catch (Exception e) {
             logger.error("[ERR-026] Error reporting client information", e);
             return false;
