@@ -116,8 +116,9 @@ public class SuperstreamManager {
 
             // Check if optimization is active
             if (!metadataMessage.isActive()) {
-                logger.error("[ERR-054] Superstream optimization is not active for this kafka cluster, please head to the Superstream console and activate it.");
-                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap());
+                String errMsg = "[ERR-054] Superstream optimization is not active for this kafka cluster, please head to the Superstream console and activate it.";
+                logger.error(errMsg);
+                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap(), errMsg);
                 return false;
             }
 
@@ -133,7 +134,7 @@ public class SuperstreamManager {
 
             if (modifiedKeys.isEmpty()) {
                 logger.debug("No configuration parameters were modified");
-                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap());
+                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap(), "");
                 return false;
             }
 
@@ -180,7 +181,8 @@ public class SuperstreamManager {
                     metadataMessage,
                     clientId,
                     originalProperties,
-                    optimizedProperties
+                    optimizedProperties,
+                    ""
             );
 
             // Log optimization success with linger.ms status based on environment variable
@@ -250,7 +252,8 @@ public class SuperstreamManager {
      */
     private void reportClientInformation(String bootstrapServers, Properties originalProperties, MetadataMessage metadataMessage,
                                          String clientId, Properties originalConfiguration,
-                                         Map<String, Object> optimizedConfiguration) {
+                                         Map<String, Object> optimizedConfiguration,
+                                         String error) {
         try {
             Map<String, Object> originalConfiguration1 = convertPropertiesToMap(originalConfiguration);
             List<String> topics = getApplicationTopics();
@@ -272,7 +275,8 @@ public class SuperstreamManager {
                     originalConfiguration1,
                     optimizedConfiguration,
                     mostImpactfulTopic,
-                    producerUuid
+                    producerUuid,
+                    error
             );
 
             if (!success) {

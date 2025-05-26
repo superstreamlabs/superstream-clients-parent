@@ -40,12 +40,14 @@ public class ClientReporter {
      * @param optimizedConfiguration The optimized configuration
      * @param mostImpactfulTopic The most impactful topic
      * @param producerUuid The producer UUID to include in the report
+     * @param error The error string to include in the report
      * @return True if the message was sent successfully, false otherwise
      */
     public boolean reportClient(String bootstrapServers, Properties originalClientProperties, int superstreamClusterId, boolean active,
                                 String clientId, Map<String, Object> originalConfiguration,
                                 Map<String, Object> optimizedConfiguration,
-                                String mostImpactfulTopic, String producerUuid) {
+                                String mostImpactfulTopic, String producerUuid,
+                                String error) {
         Properties properties = new Properties();
 
         // Copy all authentication-related and essential properties from the original client
@@ -74,7 +76,8 @@ public class ClientReporter {
                     optimizedConfiguration,
                     mostImpactfulTopic,
                     NetworkUtils.getHostname(),
-                    producerUuid
+                    producerUuid,
+                    error
             );
 
             // Convert the message to JSON

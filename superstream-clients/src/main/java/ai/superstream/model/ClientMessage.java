@@ -30,7 +30,7 @@ public class ClientMessage {
 
     public ClientMessage(int superstreamClusterId, boolean active, String clientId, String ipAddress, String clientVersion, String language, String clientType,
                          Map<String, Object> originalConfiguration, Map<String, Object> optimizedConfiguration,
-                         String mostImpactfulTopic, String hostname, String producerUuid) {
+                         String mostImpactfulTopic, String hostname, String producerUuid, String error) {
         this.superstreamClusterId = superstreamClusterId;
         this.active = active;
         this.clientId = clientId;
@@ -44,6 +44,7 @@ public class ClientMessage {
         this.environmentVariables = ai.superstream.util.EnvironmentVariables.getSuperstreamEnvironmentVariables();
         this.hostname = hostname;
         this.producerUuid = producerUuid;
+        this.error = error;
     }
 
     @JsonProperty("superstream_cluster_id")
