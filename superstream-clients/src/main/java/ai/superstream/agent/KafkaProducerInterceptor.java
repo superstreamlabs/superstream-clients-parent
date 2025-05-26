@@ -2,6 +2,7 @@ package ai.superstream.agent;
 
 import ai.superstream.core.ClientStatsReporter;
 import ai.superstream.core.SuperstreamManager;
+import ai.superstream.model.MetadataMessage;
 import ai.superstream.util.SuperstreamLogger;
 import net.bytebuddy.asm.Advice;
 
@@ -16,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.lang.ThreadLocal;
+import java.util.Collections;
 
 /**
  * Intercepts KafkaProducer constructor calls to optimize configurations and
@@ -120,6 +122,7 @@ public class KafkaProducerInterceptor {
             TL_UUID_STACK.get().push(producerUuid);
         }  else {
           logger.error("[ERR-002] Could not extract properties from producer arguments");
+          // here we can not report the error to the clients topic as we were not able to extract the properties
           return;
         }
 
@@ -134,19 +137,6 @@ public class KafkaProducerInterceptor {
                 immutableOriginalMap = tmp;
                 break;
             }
-        }
-
-        if (immutableConfigDetected && immutableOriginalMap != null) {
-            String errMsg = String.format("[ERR-010] Cannot optimize KafkaProducer configuration: received an unmodifiable Map (%s). Please pass a mutable java.util.Properties or java.util.Map instead.",
-                    immutableOriginalMap.getClass().getName());
-            logger.error(errMsg);
-
-            // Clean up ThreadLocals so that onExit knows to skip reporter setup
-            TL_PROPS_STACK.remove();
-            TL_UUID_STACK.remove();
-
-            // Do NOT attempt optimisation
-            return;
         }
 
         // Make a copy of the original properties in case we need to restore them
@@ -176,6 +166,37 @@ public class KafkaProducerInterceptor {
             String bootstrapServers = properties.getProperty("bootstrap.servers");
             if (bootstrapServers == null || bootstrapServers.trim().isEmpty()) {
                 logger.error("[ERR-004] bootstrap.servers is not set, cannot optimize");
+                return;
+            }
+
+            if (immutableConfigDetected && immutableOriginalMap != null) {
+                String errMsg = String.format("[ERR-010] Cannot optimize KafkaProducer configuration: received an unmodifiable Map (%s). Please pass a mutable java.util.Properties or java.util.Map instead.",
+                        immutableOriginalMap.getClass().getName());
+                logger.error(errMsg);
+    
+                // Report the error to the client
+                try {
+                    // Get metadata message before reporting
+                    MetadataMessage metadataMessage = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServers, properties);
+                    
+                    SuperstreamManager.getInstance().reportClientInformation(
+                        bootstrapServers,
+                        properties,
+                        metadataMessage,
+                        clientId,
+                        properties,
+                        Collections.emptyMap(), // no optimized configuration since we can't optimize
+                        errMsg
+                    );
+                } catch (Exception e) {
+                    logger.error("[ERR-058] Failed to report client error: {}", e.getMessage(), e);
+                }
+    
+                // Clean up ThreadLocals so that onExit knows to skip reporter setup
+                TL_PROPS_STACK.remove();
+                TL_UUID_STACK.remove();
+    
+                // Do NOT attempt optimisation
                 return;
             }
 

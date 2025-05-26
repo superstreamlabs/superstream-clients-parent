@@ -29,7 +29,7 @@ public class NetworkUtils {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             if (interfaces == null) {
                 logger.warn("No network interfaces found");
-                return "unknown";
+                return "";
             }
             while (interfaces.hasMoreElements()) {
                 NetworkInterface networkInterface = interfaces.nextElement();
@@ -53,7 +53,7 @@ public class NetworkUtils {
             return cachedIpAddress;
         } catch (SocketException | UnknownHostException e) {
             logger.error("[ERR-033] Failed to determine local IP address", e);
-            return "unknown";
+            return "";
         }
     }
 
@@ -73,7 +73,7 @@ public class NetworkUtils {
             return cachedHostname;
         } catch (UnknownHostException e) {
             logger.error("[ERR-034] Failed to determine local hostname", e);
-            return "unknown";
+            return "";
         }
     }
 }

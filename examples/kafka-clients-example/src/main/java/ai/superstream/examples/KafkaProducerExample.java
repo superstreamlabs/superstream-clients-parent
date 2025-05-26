@@ -38,7 +38,7 @@ public class KafkaProducerExample {
         mutableProps.put(ProducerConfig.LINGER_MS_CONFIG, 500);
 
         // Wrap the map to make it immutable – simulates a user supplying an unmodifiable configuration object
-        // Map<String, Object> props = java.util.Collections.unmodifiableMap(mutableProps);
+         Map<String, Object> props = java.util.Collections.unmodifiableMap(mutableProps);
 
         // Pass the immutable map directly to the KafkaProducer constructor
         Producer<String, String> producer = new KafkaProducer<String, String>(mutableProps);

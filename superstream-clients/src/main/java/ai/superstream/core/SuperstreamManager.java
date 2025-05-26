@@ -208,7 +208,7 @@ public class SuperstreamManager {
      * @param bootstrapServers The Kafka bootstrap servers
      * @return The metadata message, or null if it couldn't be retrieved
      */
-    private MetadataMessage getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
+    public MetadataMessage getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
         // Check the cache first
         if (metadataCache.containsKey(bootstrapServers)) {
             return metadataCache.get(bootstrapServers);
@@ -250,7 +250,7 @@ public class SuperstreamManager {
      * @param originalConfiguration The original configuration
      * @param optimizedConfiguration The optimized configuration
      */
-    private void reportClientInformation(String bootstrapServers, Properties originalProperties, MetadataMessage metadataMessage,
+    public void reportClientInformation(String bootstrapServers, Properties originalProperties, MetadataMessage metadataMessage,
                                          String clientId, Properties originalConfiguration,
                                          Map<String, Object> optimizedConfiguration,
                                          String error) {
@@ -269,8 +269,8 @@ public class SuperstreamManager {
             boolean success = clientReporter.reportClient(
                     bootstrapServers,
                     originalProperties,
-                    metadataMessage.getSuperstreamClusterId(),
-                    metadataMessage.isActive(),
+                    metadataMessage != null ? metadataMessage.getSuperstreamClusterId() : null,
+                    metadataMessage != null ? metadataMessage.isActive() : false,
                     clientId,
                     originalConfiguration1,
                     optimizedConfiguration,
