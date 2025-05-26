@@ -39,7 +39,8 @@ public class KafkaProducerExample {
 
 
         long recordCount = 50; // Number of messages to send
-        try (Producer<String, String> producer = new KafkaProducer<>(props)) {
+        Producer<String, String> producer = new KafkaProducer<>(props);
+        try {
             while (true) {
                 // Send 50 large messages to see compression benefits
                 for (int i = 1; i <= recordCount; i++) {
@@ -49,10 +50,12 @@ public class KafkaProducerExample {
                 }
 
                 producer.flush();
-                Thread.sleep(100000);
+                Thread.sleep(10000);
             }
         } catch (Exception e) {
             logger.error("Error sending message", e);
+        } finally {
+            producer.close();
         }
     }
 

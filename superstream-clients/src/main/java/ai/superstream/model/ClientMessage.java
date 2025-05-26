@@ -21,6 +21,9 @@ public class ClientMessage {
     private Map<String, Object> optimizedConfiguration;
     private List<String> topics;
     private String mostImpactfulTopic;
+    private Map<String, String> environmentVariables;
+    private String hostname;
+    private String producerUuid;
 
     public ClientMessage() {
         // Default constructor for Jackson
@@ -28,7 +31,7 @@ public class ClientMessage {
 
     public ClientMessage(int superstreamClusterId, boolean active, String clientId, String ipAddress, String clientVersion, String language, String clientType,
                          Map<String, Object> originalConfiguration, Map<String, Object> optimizedConfiguration,
-                         List<String> topics, String mostImpactfulTopic) {
+                         List<String> topics, String mostImpactfulTopic, String hostname, String producerUuid) {
         this.superstreamClusterId = superstreamClusterId;
         this.active = active;
         this.clientId = clientId;
@@ -40,6 +43,9 @@ public class ClientMessage {
         this.optimizedConfiguration = optimizedConfiguration;
         this.topics = topics;
         this.mostImpactfulTopic = mostImpactfulTopic;
+        this.environmentVariables = ai.superstream.util.EnvironmentVariables.getSuperstreamEnvironmentVariables();
+        this.hostname = hostname;
+        this.producerUuid = producerUuid;
     }
 
     @JsonProperty("superstream_cluster_id")
@@ -152,6 +158,36 @@ public class ClientMessage {
         this.mostImpactfulTopic = mostImpactfulTopic;
     }
 
+    @JsonProperty("environment_variables")
+    public Map<String, String> getEnvironmentVariables() {
+        return environmentVariables;
+    }
+
+    @JsonProperty("environment_variables")
+    public void setEnvironmentVariables(Map<String, String> environmentVariables) {
+        this.environmentVariables = environmentVariables;
+    }
+
+    @JsonProperty("hostname")
+    public String getHostname() {
+        return hostname;
+    }
+
+    @JsonProperty("hostname")
+    public void setHostname(String hostname) {
+        this.hostname = hostname;
+    }
+
+    @JsonProperty("superstream_client_uid")
+    public String getProducerUuid() {
+        return producerUuid;
+    }
+
+    @JsonProperty("superstream_client_uid")
+    public void setProducerUuid(String producerUuid) {
+        this.producerUuid = producerUuid;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -167,12 +203,17 @@ public class ClientMessage {
                 Objects.equals(originalConfiguration, that.originalConfiguration) &&
                 Objects.equals(optimizedConfiguration, that.optimizedConfiguration) &&
                 Objects.equals(topics, that.topics) &&
-                Objects.equals(mostImpactfulTopic, that.mostImpactfulTopic);
+                Objects.equals(mostImpactfulTopic, that.mostImpactfulTopic) &&
+                Objects.equals(environmentVariables, that.environmentVariables) &&
+                Objects.equals(hostname, that.hostname) &&
+                Objects.equals(producerUuid, that.producerUuid);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(superstreamClusterId, active, clientId, ipAddress, clientVersion, language, clientType, originalConfiguration, optimizedConfiguration, topics, mostImpactfulTopic);
+        return Objects.hash(superstreamClusterId, active, clientId, ipAddress, clientVersion, language, clientType, 
+                          originalConfiguration, optimizedConfiguration, topics, mostImpactfulTopic, 
+                          environmentVariables, hostname, producerUuid);
     }
 
     @Override
@@ -189,6 +230,9 @@ public class ClientMessage {
                 ", optimized_configuration=" + optimizedConfiguration +
                 ", topics=" + topics +
                 ", most_impactful_topic='" + mostImpactfulTopic + '\'' +
+                ", environment_variables=" + environmentVariables +
+                ", hostname='" + hostname + '\'' +
+                ", superstream_client_uid='" + producerUuid + '\'' +
                 '}';
     }
 }

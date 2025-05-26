@@ -12,6 +12,7 @@ import java.util.Enumeration;
 public class NetworkUtils {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(NetworkUtils.class);
     private static String cachedIpAddress = null;
+    private static String cachedHostname = null;
 
     /**
      * Get the local IP address.
@@ -51,7 +52,27 @@ public class NetworkUtils {
             cachedIpAddress = localHost.getHostAddress();
             return cachedIpAddress;
         } catch (SocketException | UnknownHostException e) {
-            logger.error("Failed to determine local IP address", e);
+            logger.error("[ERR-033] Failed to determine local IP address", e);
+            return "unknown";
+        }
+    }
+
+    /**
+     * Get the local host name.
+     *
+     * @return The host name, or "unknown" if it can't be determined
+     */
+    public static String getHostname() {
+        if (cachedHostname != null) {
+            return cachedHostname;
+        }
+
+        try {
+            InetAddress localHost = InetAddress.getLocalHost();
+            cachedHostname = localHost.getHostName();
+            return cachedHostname;
+        } catch (UnknownHostException e) {
+            logger.error("[ERR-034] Failed to determine local hostname", e);
             return "unknown";
         }
     }

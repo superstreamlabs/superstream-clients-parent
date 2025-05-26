@@ -44,12 +44,13 @@ public class ClientReporter {
      * @param optimizedConfiguration The optimized configuration
      * @param topics The list of topics
      * @param mostImpactfulTopic The most impactful topic
+     * @param producerUuid The producer UUID to include in the report
      * @return True if the message was sent successfully, false otherwise
      */
     public boolean reportClient(String bootstrapServers, Properties originalClientProperties, int superstreamClusterId, boolean active,
                                 String clientId, Map<String, Object> originalConfiguration,
                                 Map<String, Object> optimizedConfiguration,
-                                List<String> topics, String mostImpactfulTopic) {
+                                List<String> topics, String mostImpactfulTopic, String producerUuid) {
         Properties properties = new Properties();
 
         // Copy all authentication-related and essential properties from the original client
@@ -77,7 +78,9 @@ public class ClientReporter {
                     getCompleteProducerConfig(originalConfiguration),
                     optimizedConfiguration,
                     topics,
-                    mostImpactfulTopic
+                    mostImpactfulTopic,
+                    NetworkUtils.getHostname(),
+                    producerUuid
             );
 
             // Convert the message to JSON
@@ -85,22 +88,24 @@ public class ClientReporter {
 
             // Send the message
             ProducerRecord<String, String> record = new ProducerRecord<>(CLIENTS_TOPIC, json);
-            producer.send(record).get(5, TimeUnit.SECONDS);
+            producer.send(record).get(10, TimeUnit.SECONDS);
+            producer.flush();
+            producer.close();
 
-            logger.info("Successfully reported client information to {}", CLIENTS_TOPIC);
+            logger.debug("Successfully reported client information to {}", CLIENTS_TOPIC);
             return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            logger.error("Interrupted while reporting client information", e);
+            logger.error("[ERR-023] Interrupted while reporting client information", e);
             return false;
         } catch (ExecutionException e) {
-            logger.error("Failed to report client information", e);
+            logger.error("[ERR-024] Failed to report client information", e);
             return false;
         } catch (TimeoutException e) {
-            logger.error("Timed out while reporting client information", e);
+            logger.error("[ERR-025] Timed out while reporting client information", e);
             return false;
         } catch (Exception e) {
-            logger.error("Error reporting client information", e);
+            logger.error("[ERR-026] Error reporting client information", e);
             return false;
         }
     }
