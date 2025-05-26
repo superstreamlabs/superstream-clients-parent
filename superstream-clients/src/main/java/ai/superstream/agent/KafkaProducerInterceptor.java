@@ -98,7 +98,6 @@ public class KafkaProducerInterceptor {
         // Check if this is a direct call from application code or an internal
         // delegation
         if (!isInitialProducerCreation()) {
-            logger.debug("Skipping internal constructor delegation");
             return;
         }
 
@@ -146,7 +145,6 @@ public class KafkaProducerInterceptor {
         try {
             // Skip if we're already in the process of optimizing
             if (SuperstreamManager.isOptimizationInProgress()) {
-                logger.debug("Skipping interception as optimization is already in progress");
                 return;
             }
 
@@ -227,7 +225,6 @@ public class KafkaProducerInterceptor {
         try {
             // Process only for the outer-most constructor call
             if (!isInitialProducerCreation()) {
-                logger.debug("Skipping internal constructor delegation");
                 return;
             }
 
@@ -264,7 +261,6 @@ public class KafkaProducerInterceptor {
 
             // Skip internal library producers (identified by client.id prefix)
             if (rawClientId != null && rawClientId.startsWith(SUPERSTREAM_LIBRARY_PREFIX)) {
-                logger.debug("Skipping Superstream internal producer: {}", rawClientId);
                 return;
             }
 
