@@ -132,7 +132,7 @@ The Superstream library needs to modify your producer's configuration to apply o
 
 https://github.com/superstreamlabs/superstream-clients-java/releases
 
-### Available also in Maven Central
+#### Available also in Maven Central
 
 https://central.sonatype.com/artifact/ai.superstream/superstream-clients
 
