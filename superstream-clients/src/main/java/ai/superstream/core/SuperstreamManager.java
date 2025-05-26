@@ -30,7 +30,7 @@ public class SuperstreamManager {
         this.disabled = Boolean.parseBoolean(System.getenv(DISABLED_ENV_VAR));
 
         if (disabled) {
-            logger.info("Superstream optimization is disabled via environment variable");
+            logger.debug("Superstream optimization is disabled via environment variable");
         }
     }
 
@@ -106,7 +106,7 @@ public class SuperstreamManager {
             // Get or fetch the metadata message
             MetadataMessage metadataMessage = getOrFetchMetadataMessage(bootstrapServers, properties);
             if (metadataMessage == null) {
-                logger.warn("No metadata message available for {}, skipping optimization", bootstrapServers);
+                // log is inside the getOrFetchMetadataMessage method
                 return false;
             }
 
@@ -116,8 +116,9 @@ public class SuperstreamManager {
 
             // Check if optimization is active
             if (!metadataMessage.isActive()) {
-                logger.info("Superstream optimization is not active for this kafka cluster, please head to the Superstream console and activate it.");
-                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap());
+                String errMsg = "[ERR-054] Superstream optimization is not active for this kafka cluster, please head to the Superstream console and activate it.";
+                logger.error(errMsg);
+                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap(), errMsg);
                 return false;
             }
 
@@ -132,8 +133,8 @@ public class SuperstreamManager {
             List<String> modifiedKeys = configurationOptimizer.applyOptimalConfiguration(properties, optimalConfiguration);
 
             if (modifiedKeys.isEmpty()) {
-                logger.info("No configuration parameters were modified");
-                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap());
+                logger.debug("No configuration parameters were modified");
+                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap(), "");
                 return false;
             }
 
@@ -180,13 +181,20 @@ public class SuperstreamManager {
                     metadataMessage,
                     clientId,
                     originalProperties,
-                    optimizedProperties
+                    optimizedProperties,
+                    ""
             );
 
-            logger.info("Successfully optimized producer configuration for {}", clientId);
+            // Log optimization success with linger.ms status based on environment variable
+            boolean isLatencySensitive = configurationOptimizer.isLatencySensitive();
+            if (isLatencySensitive) {
+                logger.info("Successfully optimized producer configuration for {} (linger.ms left unchanged due to latency sensitivity)", clientId);
+            } else {
+                logger.info("Successfully optimized producer configuration for {}", clientId);
+            }
             return true;
         } catch (Exception e) {
-            logger.error("Failed to optimize producer configuration", e);
+            logger.error("[ERR-030] Failed to optimize producer configuration", e);
             return false;
         } finally {
             // Always clear the flag when done
@@ -200,7 +208,7 @@ public class SuperstreamManager {
      * @param bootstrapServers The Kafka bootstrap servers
      * @return The metadata message, or null if it couldn't be retrieved
      */
-    private MetadataMessage getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
+    public MetadataMessage getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
         // Check the cache first
         if (metadataCache.containsKey(bootstrapServers)) {
             return metadataCache.get(bootstrapServers);
@@ -242,30 +250,40 @@ public class SuperstreamManager {
      * @param originalConfiguration The original configuration
      * @param optimizedConfiguration The optimized configuration
      */
-    private void reportClientInformation(String bootstrapServers, Properties originalProperties, MetadataMessage metadataMessage,
+    public void reportClientInformation(String bootstrapServers, Properties originalProperties, MetadataMessage metadataMessage,
                                          String clientId, Properties originalConfiguration,
-                                         Map<String, Object> optimizedConfiguration) {
+                                         Map<String, Object> optimizedConfiguration,
+                                         String error) {
         try {
             Map<String, Object> originalConfiguration1 = convertPropertiesToMap(originalConfiguration);
             List<String> topics = getApplicationTopics();
             String mostImpactfulTopic = configurationOptimizer.getMostImpactfulTopicName(metadataMessage, topics);
+
+            // Retrieve the producer UUID from ThreadLocal stack (aligned with TL_PROPS_STACK)
+            String producerUuid = null;
+            java.util.Deque<String> uuidStack = ai.superstream.agent.KafkaProducerInterceptor.TL_UUID_STACK.get();
+            if (!uuidStack.isEmpty()) {
+                producerUuid = uuidStack.peek();
+            }
+
             boolean success = clientReporter.reportClient(
                     bootstrapServers,
                     originalProperties,
-                    metadataMessage.getSuperstreamClusterId(),
-                    metadataMessage.isActive(),
+                    metadataMessage != null ? metadataMessage.getSuperstreamClusterId() : null,
+                    metadataMessage != null ? metadataMessage.isActive() : false,
                     clientId,
                     originalConfiguration1,
                     optimizedConfiguration,
-                    topics,
-                    mostImpactfulTopic
+                    mostImpactfulTopic,
+                    producerUuid,
+                    error
             );
 
             if (!success) {
-                logger.warn("Failed to report client information to the superstream.clients topic");
+                logger.error("[ERR-032] Failed to report client information to the superstream.clients topic");
             }
         } catch (Exception e) {
-            logger.error("Error reporting client information", e);
+            logger.error("[ERR-031] Error reporting client information", e);
         }
     }
 }

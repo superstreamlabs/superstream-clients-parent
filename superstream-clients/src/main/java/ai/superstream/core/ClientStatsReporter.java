@@ -29,7 +29,7 @@ public class ClientStatsReporter {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ClientStatsReporter.class);
     private static final String CLIENTS_TOPIC = "superstream.clients";
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final long REPORT_INTERVAL_MS = 60000; // 1 minute
+    private static final long REPORT_INTERVAL_MS = 300000; // 5 minutes
     private static final String DISABLED_ENV_VAR = "SUPERSTREAM_DISABLED";
 
     // Shared scheduler for all reporters to minimize thread usage
@@ -47,6 +47,7 @@ public class ClientStatsReporter {
     private final String clientId;
     private final AtomicBoolean registered = new AtomicBoolean(false);
     private final boolean disabled;
+    private final String producerUuid;
 
     private final AtomicReference<java.util.Map<String, Double>> latestMetrics = new AtomicReference<>(
             new java.util.HashMap<>());
@@ -60,13 +61,15 @@ public class ClientStatsReporter {
      * @param bootstrapServers Kafka bootstrap servers
      * @param clientProperties Producer properties to use for authentication
      * @param clientId         The client ID to include in reports
+     * @param producerUuid     The producer UUID
      */
-    public ClientStatsReporter(String bootstrapServers, Properties clientProperties, String clientId) {
+    public ClientStatsReporter(String bootstrapServers, Properties clientProperties, String clientId, String producerUuid) {
         this.clientId = clientId;
         this.disabled = Boolean.parseBoolean(System.getenv(DISABLED_ENV_VAR));
+        this.producerUuid = producerUuid;
 
         if (this.disabled) {
-            logger.info("Superstream stats reporting is disabled via environment variable");
+            logger.debug("Superstream stats reporting is disabled via environment variable");
         }
 
         this.statsCollector = new ClientStatsCollector();
@@ -132,35 +135,37 @@ public class ClientStatsReporter {
                     NetworkUtils.getLocalIpAddress(),
                     totalBytesBefore,
                     totalBytesAfter,
-                    ClientReporter.getClientVersion());
+                    ClientReporter.getClientVersion(),
+                    NetworkUtils.getHostname(),
+                    producerUuid);
 
-            // Attach full producer metrics snapshot if available
-            java.util.Map<String, Double> metricsSnapshot = latestMetrics.get();
-            if (metricsSnapshot != null && !metricsSnapshot.isEmpty()) {
-                message.setProducerMetrics(metricsSnapshot);
-            }
+                // Attach full producer metrics snapshot if available
+                java.util.Map<String, Double> metricsSnapshot = latestMetrics.get();
+                if (metricsSnapshot != null && !metricsSnapshot.isEmpty()) {
+                    message.setProducerMetrics(metricsSnapshot);
+                }
 
-            if (originalConfig != null) {
-                message.setOriginalConfiguration(originalConfig);
-            }
-            if (optimizedConfig != null) {
-                message.setOptimizedConfiguration(optimizedConfig);
-            }
+                if (originalConfig != null) {
+                    message.setOriginalConfiguration(originalConfig);
+                }
+                if (optimizedConfig != null) {
+                    message.setOptimizedConfiguration(optimizedConfig);
+                }
 
-            // Attach topics list
-            if (!topicsWritten.isEmpty()) {
-                message.setTopics(new java.util.ArrayList<>(topicsWritten));
-            }
+                // Attach topics list
+                if (!topicsWritten.isEmpty()) {
+                    message.setTopics(new java.util.ArrayList<>(topicsWritten));
+                }
 
             String json = objectMapper.writeValueAsString(message);
             ProducerRecord<String, String> record = new ProducerRecord<>(CLIENTS_TOPIC, json);
             producer.send(record);
 
             // Log at INFO level that stats have been sent for this producer
-            logger.info("Producer {} stats sent: before={} bytes, after={} bytes",
+            logger.debug("Producer {} stats sent: before={} bytes, after={} bytes",
                     clientId, totalBytesBefore, totalBytesAfter);
         } catch (Exception e) {
-            logger.debug("Failed to drain stats for client {}", clientId, e);
+            logger.error("[ERR-021] Failed to drain stats for client {}", clientId, e);
         }
     }
 
@@ -220,7 +225,7 @@ public class ClientStatsReporter {
                 }
                 producer.flush();
             } catch (Exception e) {
-                logger.debug("Cluster stats coordinator failed for {}", bootstrapServers, e);
+                logger.error("[ERR-022] Cluster stats coordinator failed for {}: {}", bootstrapServers, e.getMessage(), e);
             }
         }
     }

@@ -20,6 +20,9 @@ public class ClientStatsMessage {
     private java.util.List<String> topics; // Topics written by producer
     private java.util.Map<String,Object> originalConfiguration;
     private java.util.Map<String,Object> optimizedConfiguration;
+    private java.util.Map<String, String> environmentVariables;
+    private String hostname;
+    private String producerUuid;
 
     public ClientStatsMessage() {
         // Default constructor for Jackson
@@ -27,7 +30,7 @@ public class ClientStatsMessage {
 
     public ClientStatsMessage(String clientId, String ipAddress,
                               long totalWriteBefore, long totalWriteAfter,
-                              String clientVersion) {
+                              String clientVersion, String hostname, String producerUuid) {
         this.clientId = clientId;
         this.ipAddress = ipAddress;
         this.type = "producer";
@@ -35,6 +38,9 @@ public class ClientStatsMessage {
         this.totalWriteBefore = totalWriteBefore;
         this.totalWriteAfter = totalWriteAfter;
         this.clientVersion = clientVersion;
+        this.environmentVariables = ai.superstream.util.EnvironmentVariables.getSuperstreamEnvironmentVariables();
+        this.hostname = hostname;
+        this.producerUuid = producerUuid;
     }
 
     @JsonProperty("client_id")
@@ -137,6 +143,36 @@ public class ClientStatsMessage {
     @JsonProperty("optimized_configuration")
     public void setOptimizedConfiguration(java.util.Map<String,Object> cfg) { this.optimizedConfiguration = cfg; }
 
+    @JsonProperty("environment_variables")
+    public java.util.Map<String, String> getEnvironmentVariables() {
+        return environmentVariables;
+    }
+
+    @JsonProperty("environment_variables")
+    public void setEnvironmentVariables(java.util.Map<String, String> environmentVariables) {
+        this.environmentVariables = environmentVariables;
+    }
+
+    @JsonProperty("hostname")
+    public String getHostname() {
+        return hostname;
+    }
+
+    @JsonProperty("hostname")
+    public void setHostname(String hostname) {
+        this.hostname = hostname;
+    }
+
+    @JsonProperty("superstream_client_uid")
+    public String getProducerUuid() {
+        return producerUuid;
+    }
+
+    @JsonProperty("superstream_client_uid")
+    public void setProducerUuid(String producerUuid) {
+        this.producerUuid = producerUuid;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -152,13 +188,18 @@ public class ClientStatsMessage {
                 Objects.equals(producerMetrics, that.producerMetrics) &&
                 Objects.equals(topics, that.topics) &&
                 Objects.equals(originalConfiguration, that.originalConfiguration) &&
-                Objects.equals(optimizedConfiguration, that.optimizedConfiguration);
+                Objects.equals(optimizedConfiguration, that.optimizedConfiguration) &&
+                Objects.equals(environmentVariables, that.environmentVariables) &&
+                Objects.equals(hostname, that.hostname) &&
+                Objects.equals(producerUuid, that.producerUuid);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(clientId, ipAddress, type, messageType, totalWriteBefore, 
-                          totalWriteAfter, clientVersion, producerMetrics, topics, originalConfiguration, optimizedConfiguration);
+                          totalWriteAfter, clientVersion, producerMetrics, topics, 
+                          originalConfiguration, optimizedConfiguration, environmentVariables,
+                          hostname, producerUuid);
     }
 
     @Override
@@ -175,6 +216,9 @@ public class ClientStatsMessage {
                 ", topics=" + topics +
                 ", original_configuration=" + originalConfiguration +
                 ", optimized_configuration=" + optimizedConfiguration +
+                ", environment_variables=" + environmentVariables +
+                ", hostname='" + hostname + '\'' +
+                ", superstream_client_uid='" + producerUuid + '\'' +
                 '}';
     }
 } 

@@ -2,6 +2,7 @@ package ai.superstream.agent;
 
 import ai.superstream.core.ClientStatsReporter;
 import ai.superstream.core.SuperstreamManager;
+import ai.superstream.model.MetadataMessage;
 import ai.superstream.util.SuperstreamLogger;
 import net.bytebuddy.asm.Advice;
 
@@ -9,7 +10,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Properties;
 import java.util.Map;
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Executors;
@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.lang.ThreadLocal;
+import java.util.Collections;
 
 /**
  * Intercepts KafkaProducer constructor calls to optimize configurations and
@@ -48,6 +49,13 @@ public class KafkaProducerInterceptor {
     public static final ThreadLocal<java.util.Deque<Properties>> TL_PROPS_STACK =
             ThreadLocal.withInitial(java.util.ArrayDeque::new);
 
+    // ThreadLocal stack to hold the producer UUIDs generated in onEnter so that the same
+    // value can be reused later in onExit (for stats reporting) and by SuperstreamManager
+    // when it reports the client information. The stack is aligned with the TL_PROPS_STACK
+    // (push in onEnter, pop in onExit).
+    public static final ThreadLocal<java.util.Deque<String>> TL_UUID_STACK =
+            ThreadLocal.withInitial(java.util.ArrayDeque::new);
+
     // ThreadLocal stack to pass original/optimized configuration maps from optimization phase to reporter creation.
     public static final ThreadLocal<java.util.Deque<ConfigInfo>> TL_CFG_STACK =
             ThreadLocal.withInitial(java.util.ArrayDeque::new);
@@ -57,12 +65,11 @@ public class KafkaProducerInterceptor {
         if (!DISABLED) {
             try {
                 sharedCollector.start();
-                logger.info("Superstream metrics collector initialized and started successfully");
             } catch (Exception e) {
-                logger.error("Failed to start metrics collector: " + e.getMessage(), e);
+                logger.error("[ERR-001] Failed to start metrics collector: {}", e.getMessage(), e);
             }
         } else {
-            logger.info("Superstream metrics collection is disabled via SUPERSTREAM_DISABLED environment variable");
+            logger.warn("Superstream is disabled via SUPERSTREAM_DISABLED environment variable");
         }
     }
 
@@ -91,7 +98,6 @@ public class KafkaProducerInterceptor {
         // Check if this is a direct call from application code or an internal
         // delegation
         if (!isInitialProducerCreation()) {
-            logger.debug("Skipping internal constructor delegation");
             return;
         }
 
@@ -109,9 +115,27 @@ public class KafkaProducerInterceptor {
             }
 
             TL_PROPS_STACK.get().push(properties);
+
+            // Generate a UUID for this upcoming producer instance and push onto UUID stack
+            String producerUuid = java.util.UUID.randomUUID().toString();
+            TL_UUID_STACK.get().push(producerUuid);
         }  else {
-          logger.error("Could not extract properties from producer arguments");
+          logger.error("[ERR-002] Could not extract properties from producer arguments");
+          // here we can not report the error to the clients topic as we were not able to extract the properties
           return;
+        }
+
+        // Detect immutable Map argument (e.g., Collections.unmodifiableMap) so we can skip optimisation early
+        boolean immutableConfigDetected = false;
+        java.util.Map<String,Object> immutableOriginalMap = null;
+        for (Object arg : args) {
+            if (arg instanceof java.util.Map && arg.getClass().getName().contains("UnmodifiableMap")) {
+                immutableConfigDetected = true;
+                @SuppressWarnings("unchecked")
+                java.util.Map<String,Object> tmp = (java.util.Map<String,Object>) arg;
+                immutableOriginalMap = tmp;
+                break;
+            }
         }
 
         // Make a copy of the original properties in case we need to restore them
@@ -121,12 +145,11 @@ public class KafkaProducerInterceptor {
         try {
             // Skip if we're already in the process of optimizing
             if (SuperstreamManager.isOptimizationInProgress()) {
-                logger.debug("Skipping interception as optimization is already in progress");
                 return;
             }
 
             if (properties == null || properties.isEmpty()) {
-                logger.error("Could not extract properties from properties");
+                logger.error("[ERR-003] Could not extract properties from properties");
                 return;
             }
 
@@ -137,36 +160,52 @@ public class KafkaProducerInterceptor {
                 return;
             }
 
-            logger.info("Intercepted KafkaProducer constructor");
-
             // Extract bootstrap servers
             String bootstrapServers = properties.getProperty("bootstrap.servers");
             if (bootstrapServers == null || bootstrapServers.trim().isEmpty()) {
-                logger.warn("bootstrap.servers is not set, cannot optimize");
+                logger.error("[ERR-004] bootstrap.servers is not set, cannot optimize");
+                return;
+            }
+
+            if (immutableConfigDetected && immutableOriginalMap != null) {
+                String errMsg = String.format("[ERR-010] Cannot optimize KafkaProducer configuration: received an unmodifiable Map (%s). Please pass a mutable java.util.Properties or java.util.Map instead.",
+                        immutableOriginalMap.getClass().getName());
+                logger.error(errMsg);
+    
+                // Report the error to the client
+                try {
+                    // Get metadata message before reporting
+                    MetadataMessage metadataMessage = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServers, properties);
+                    
+                    SuperstreamManager.getInstance().reportClientInformation(
+                        bootstrapServers,
+                        properties,
+                        metadataMessage,
+                        clientId,
+                        properties,
+                        Collections.emptyMap(), // no optimized configuration since we can't optimize
+                        errMsg
+                    );
+                } catch (Exception e) {
+                    logger.error("[ERR-058] Failed to report client error: {}", e.getMessage(), e);
+                }
+    
+                // Clean up ThreadLocals so that onExit knows to skip reporter setup
+                TL_PROPS_STACK.remove();
+                TL_UUID_STACK.remove();
+    
+                // Do NOT attempt optimisation
                 return;
             }
 
             // Optimize the producer
             boolean success = SuperstreamManager.getInstance().optimizeProducer(bootstrapServers, clientId, properties);
             if (!success) {
-                /*
-                 * Roll-back any changes we may have applied without wiping the whole
-                 * Properties object first.  Clearing the map created a tiny window in
-                 * which application-code that already held the reference could observe
-                 * an empty map – leading to NPEs further down the stack.  Instead we
-                 * simply overlay the original values which is functionally equivalent
-                 * but keeps the map non-empty at all times.
-                 */
                 properties.putAll(originalProperties);
             }
         } catch (Exception e) {
-            /*
-             * If optimisation threw, restore the original entries but keep the map
-             * non-empty so that any other thread holding a reference never sees an
-             * empty state.
-             */
             properties.putAll(originalProperties);
-            logger.error("Error during producer optimization, restored original properties", e);
+            logger.error("[ERR-005] Error during producer optimization, restored original properties: {}", e.getMessage(), e);
         }
     }
 
@@ -186,26 +225,35 @@ public class KafkaProducerInterceptor {
         try {
             // Process only for the outer-most constructor call
             if (!isInitialProducerCreation()) {
-                logger.debug("Skipping internal constructor delegation");
                 return;
             }
 
             java.util.Deque<Properties> stack = TL_PROPS_STACK.get();
             if (stack.isEmpty()) {
-                logger.error("No captured properties for this producer constructor; skipping stats reporter setup");
+                logger.error("[ERR-006] No captured properties for this producer constructor; skipping stats reporter setup");
                 return;
             }
 
             Properties producerProps = stack.pop();
 
+            // Retrieve matching UUID for this constructor instance
+            java.util.Deque<String> uuidStack = TL_UUID_STACK.get();
+            String producerUuid = "";
+            if (!uuidStack.isEmpty()) {
+                producerUuid = uuidStack.pop();
+            } else {
+                logger.error("[ERR-127] No producer UUID found for this constructor instance");
+            }
+
             // Clean up ThreadLocal when outer-most constructor finishes
             if (stack.isEmpty()) {
                 TL_PROPS_STACK.remove();
+                TL_UUID_STACK.remove();
             }
 
             String bootstrapServers = producerProps.getProperty("bootstrap.servers");
             if (bootstrapServers == null || bootstrapServers.isEmpty()) {
-                logger.error("bootstrap.servers missing in captured properties; skipping reporter setup");
+                logger.error("[ERR-007] bootstrap.servers missing in captured properties; skipping reporter setup");
                 return;
             }
 
@@ -213,7 +261,6 @@ public class KafkaProducerInterceptor {
 
             // Skip internal library producers (identified by client.id prefix)
             if (rawClientId != null && rawClientId.startsWith(SUPERSTREAM_LIBRARY_PREFIX)) {
-                logger.debug("Skipping Superstream internal producer: {}", rawClientId);
                 return;
             }
 
@@ -228,29 +275,29 @@ public class KafkaProducerInterceptor {
                 logger.debug("Registering producer with metrics collector: {} (client.id='{}')", producerId, clientIdForStats);
 
                 // Create a reporter for this producer instance – pass the original client.id
-                ClientStatsReporter reporter = new ClientStatsReporter(bootstrapServers, producerProps, clientIdForStats);
+                ClientStatsReporter reporter = new ClientStatsReporter(bootstrapServers, producerProps, clientIdForStats, producerUuid);
 
-                // Create metrics info for this producer
-                ProducerMetricsInfo metricsInfo = new ProducerMetricsInfo(producer, reporter);
+                    // Create metrics info for this producer
+                    ProducerMetricsInfo metricsInfo = new ProducerMetricsInfo(producer, reporter);
 
-                // Register with the shared collector
-                producerMetricsMap.put(producerId, metricsInfo);
-                clientStatsReporters.put(producerId, reporter);
+                    // Register with the shared collector
+                    producerMetricsMap.put(producerId, metricsInfo);
+                    clientStatsReporters.put(producerId, reporter);
 
-                // Pop configuration info from ThreadLocal stack (if any) and attach to reporter
-                java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
-                ConfigInfo cfgInfo = cfgStack.isEmpty()? null : cfgStack.pop();
-                if (cfgStack.isEmpty()) {
-                    TL_CFG_STACK.remove();
-                }
-                if (cfgInfo != null) {
-                    reporter.setConfigurations(cfgInfo.originalConfig, cfgInfo.optimizedConfig);
-                }
+                    // Pop configuration info from ThreadLocal stack (if any) and attach to reporter
+                    java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
+                    ConfigInfo cfgInfo = cfgStack.isEmpty()? null : cfgStack.pop();
+                    if (cfgStack.isEmpty()) {
+                        TL_CFG_STACK.remove();
+                    }
+                    if (cfgInfo != null) {
+                        reporter.setConfigurations(cfgInfo.originalConfig, cfgInfo.optimizedConfig);
+                    }
 
                 logger.debug("Producer {} registered with shared metrics collector", producerId);
             }
         } catch (Exception e) {
-            logger.error("Error registering producer with metrics collector: " + e.getMessage(), e);
+            logger.error("[ERR-008] Error registering producer with metrics collector: {}", e.getMessage(), e);
         }
     }
 
@@ -260,7 +307,7 @@ public class KafkaProducerInterceptor {
     public static Properties extractProperties(Object[] args) {
         // Look for Properties or Map in the arguments
         if (args == null) {
-            logger.error("extractProperties: args array is null");
+            logger.error("[ERR-009] extractProperties: args array is null");
             return null;
         }
 
@@ -282,14 +329,7 @@ public class KafkaProducerInterceptor {
             if (arg instanceof Map) {
                 logger.debug("extractProperties: Found Map object of type: {}", arg.getClass().getName());
 
-                // If the map is unmodifiable we cannot change producer configuration -> cannot optimise
-                if (arg.getClass().getName().contains("UnmodifiableMap")) {
-                    logger.error("Cannot optimize KafkaProducer configuration: received an unmodifiable Map ({}). " +
-                                 "Please pass a mutable java.util.Properties or java.util.Map instead.",
-                                 arg.getClass().getName());
-                    return null; // signal caller to skip optimisation
-                }
-
+                // If the map is unmodifiable we cannot actually modify it later; we still let the caller decide
                 try {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> map = (Map<String, Object>) arg;
@@ -298,7 +338,7 @@ public class KafkaProducerInterceptor {
                     return props;
                 } catch (ClassCastException e) {
                     // Not the map type we expected
-                    logger.error("extractProperties: Could not cast Map to Map<String, Object>", e);
+                    logger.error("[ERR-011] extractProperties: Could not cast Map to Map<String, Object>: {}", e.getMessage(), e);
                     return null;
                 }
             }
@@ -334,7 +374,7 @@ public class KafkaProducerInterceptor {
                             }
                         } catch (NoSuchFieldException e) {
                             // Field doesn't exist, try the next one
-                            logger.error("extractProperties: Field {} not found in ProducerConfig", fieldName);
+                            logger.error("[ERR-017] extractProperties: Field {} not found in ProducerConfig", fieldName);
                             continue;
                         }
                     }
@@ -399,13 +439,14 @@ public class KafkaProducerInterceptor {
                     }
 
                 } catch (Exception e) {
-                    logger.error("extractProperties: Failed to extract properties from ProducerConfig: {}",
+                    logger.error("[ERR-018] extractProperties: Failed to extract properties from ProducerConfig: {}",
                             e.getMessage(), e);
+                            return null;
                 }
             }
         }
 
-        logger.error("extractProperties: No valid configuration object found in arguments");
+        logger.error("[ERR-019] extractProperties: No valid configuration object found in arguments");
         return null;
     }
 
@@ -595,13 +636,12 @@ public class KafkaProducerInterceptor {
                             COLLECTION_INTERVAL_MS / 2, // Start sooner for first collection
                             COLLECTION_INTERVAL_MS,
                             TimeUnit.MILLISECONDS);
-                    logger.debug("Metrics collection scheduler started successfully");
                 } catch (Exception e) {
-                    logger.error("Failed to schedule metrics collection: " + e.getMessage(), e);
+                    logger.error("[ERR-012] Failed to schedule metrics collection: {}", e.getMessage(), e);
                     running.set(false);
                 }
             } else {
-                logger.info("Metrics collector already running");
+                logger.debug("Metrics collector already running");
             }
         }
 
@@ -644,7 +684,7 @@ public class KafkaProducerInterceptor {
                             skippedCount++;
                         }
                     } catch (Exception e) {
-                        logger.error("Error collecting metrics for producer {}: {}", producerId, e.getMessage());
+                        logger.error("[ERR-013] Error collecting metrics for producer {}: {}", producerId, e.getMessage(), e);
                     }
                 }
 
@@ -653,7 +693,7 @@ public class KafkaProducerInterceptor {
                         totalProducers, successCount, skippedCount);
 
             } catch (Exception e) {
-                logger.error("Error in metrics collection cycle: " + e.getMessage(), e);
+                logger.error("[ERR-014] Error in metrics collection cycle: {}", e.getMessage(), e);
             }
         }
 
@@ -757,7 +797,7 @@ public class KafkaProducerInterceptor {
                         }
                     }
                 } catch (Exception snapshotEx) {
-                    // ignore snapshot errors
+                    logger.error("[ERR-015] Error extracting metrics snapshot for producer {}: {}", producerId, snapshotEx.getMessage(), snapshotEx);
                 }
 
                 // Update reporter with latest metrics snapshot
@@ -805,7 +845,7 @@ public class KafkaProducerInterceptor {
 
                 return true;
             } catch (Exception e) {
-                logger.error("Error collecting Kafka metrics for producer {}: {}", producerId, e.getMessage(), e);
+                logger.error("[ERR-016] Error collecting Kafka metrics for producer {}: {}", producerId, e.getMessage(), e);
                 return false;
             }
         }

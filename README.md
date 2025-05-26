@@ -77,10 +77,6 @@ KafkaProducer<String, String> producer = new KafkaProducer<>(
     Map.of("bootstrap.servers", "localhost:9092")
 );
 
-// Using ProducerConfig.originals() which returns an unmodifiable copy
-ProducerConfig config = new ProducerConfig(props);
-KafkaProducer<String, String> producer = new KafkaProducer<>(config.originals());
-
 // Using KafkaTemplate's getProducerFactory().getConfigurationProperties()
 // which returns an unmodifiable map
 KafkaTemplate<String, String> template = new KafkaTemplate<>(producerFactory);
@@ -126,40 +122,22 @@ The Superstream library needs to modify your producer's configuration to apply o
 
 *Superstream package*: https://central.sonatype.com/artifact/ai.superstream/superstream-clients-java/overview
 
-### Step 1: Add Superstream package
+### Step 1: Add Superstream Jar to your application
 
-#### Maven
+#### Download from GitHub
 
-Always use the latest version
+https://github.com/superstreamlabs/superstream-clients-java/releases
 
-```xml
-<dependency>
-    <groupId>ai.superstream</groupId>
-    <artifactId>superstream-clients</artifactId>
-    <version>1.0.0</version>
-</dependency>
-```
+#### Available also in Maven Central
 
-#### Gradle
-
-Always use the latest version
-
-```groovy
-implementation group: 'ai.superstream', name: 'superstream-clients', version: '1.0.0-beta'
-```
+https://central.sonatype.com/artifact/ai.superstream/superstream-clients
 
 ### Step 2: Run
 
 Add the Java agent to your application's startup command:
 
 ```bash
-java -javaagent:/path/to/superstream-clients-1.0.0.jar -jar your-application.jar
-```
-
-Common example: 
-
-```bash
-java -javaagent:$MAVEN_REPOSITORY$/ai/superstream/superstream-clients/1.0.0/superstream-clients-1.0.0.jar -jar your-application.jar
+java -javaagent:/path/to/superstream-clients-1.0.16.jar -jar your-application.jar
 ```
 
 ### Docker Integration
@@ -169,44 +147,20 @@ When using Superstream Clients with containerized applications, include the agen
 ```dockerfile
 FROM openjdk:11-jre
 
+WORKDIR /app
+
 # Copy your application
-COPY target/your-application.jar /app/your-application.jar
+COPY target/your-application.jar app.jar
 
 # Copy the Superstream agent
-COPY path/to/superstream-clients-1.0.0.jar /app/lib/superstream-clients-1.0.0.jar
-
-# Set environment variables
-ENV SUPERSTREAM_TOPICS_LIST=your-topics
+COPY path/to/superstream-clients-1.0.16.jar superstream-agent.jar
 
 # Run with the Java agent
-ENTRYPOINT ["java", "-javaagent:/app/lib/superstream-clients-1.0.0.jar", "-jar", "/app/your-application.jar"]
+ENTRYPOINT ["java", "-javaagent:/app/superstream-agent.jar", "-jar", "/app/app.jar"]
 ```
 
 Alternatively, you can use a multi-stage build to download the agent from Maven Central:
 
-```dockerfile
-# Build stage
-FROM maven:3.8-openjdk-11 AS build
-
-# Get the Superstream agent
-RUN mvn org.apache.maven.plugins:maven-dependency-plugin:3.2.0:get \
--DgroupId=ai.superstream \
--DartifactId=superstream-clients \
--Dversion=1.0.0
-
-RUN mvn org.apache.maven.plugins:maven-dependency-plugin:3.2.0:copy \
--Dartifact=ai.superstream:superstream-clients:1.0.0 \
--DoutputDirectory=/tmp
-
-# Final stage
-FROM openjdk:11-jre
-
-# Copy your application
-COPY target/your-application.jar /app/your-application.jar
-
-# Copy the agent from the build stage
-COPY --from=build /tmp/superstream-clients-1.0.0.jar /app/lib/superstream-clients-1.0.0.jar
-```
 
 ### Required Environment Variables
 

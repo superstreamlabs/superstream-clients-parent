@@ -46,7 +46,7 @@ public class MetadataConsumer {
             // Check if the metadata topic exists
             Set<String> topics = consumer.listTopics().keySet();
             if (!topics.contains(METADATA_TOPIC)) {
-                logger.warn("The {} topic does not exist on the Kafka cluster at {}", METADATA_TOPIC, bootstrapServers);
+                logger.error("[ERR-034] Superstream internal topic is missing. This topic is required for Superstream to function properly. Please contact the Superstream team for assistance.");
                 return null;
             }
 
@@ -59,7 +59,7 @@ public class MetadataConsumer {
             long endOffset = consumer.position(partition);
 
             if (endOffset == 0) {
-                logger.warn("The {} topic is empty", METADATA_TOPIC);
+                logger.error("[ERR-035] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.");
                 return null;
             }
 
@@ -69,19 +69,19 @@ public class MetadataConsumer {
             // Poll for the message
             ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(5));
             if (records.isEmpty()) {
-                logger.warn("Failed to retrieve a message from the {} topic", METADATA_TOPIC);
+                logger.error("[ERR-036] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.");
                 return null;
             }
-            logger.info("Successfully retrieved a message from the {} topic", METADATA_TOPIC);
+            logger.debug("Successfully retrieved a message from the {} topic", METADATA_TOPIC);
 
             // Parse the message
             String json = records.iterator().next().value();
             return objectMapper.readValue(json, MetadataMessage.class);
         } catch (IOException e) {
-            logger.error("Failed to parse the metadata message", e);
+            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.");
             return null;
         } catch (Exception e) {
-            logger.error("Failed to retrieve the metadata message", e);
+            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.");
             return null;
         }
     }
@@ -89,7 +89,7 @@ public class MetadataConsumer {
     // Helper method to copy authentication properties
     private void copyAuthenticationProperties(Properties source, Properties destination) {
         if (source == null || destination == null) {
-            logger.warn("Cannot copy authentication properties: source or destination is null");
+            logger.error("[ERR-029] Cannot copy authentication properties: source or destination is null");
             return;
         }
         // Authentication-related properties
