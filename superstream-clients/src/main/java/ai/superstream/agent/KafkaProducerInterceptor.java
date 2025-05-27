@@ -1127,5 +1127,34 @@ public class KafkaProducerInterceptor {
                 put(e.getKey(), e.getValue());
             }
         }
+
+        @Override
+        public String getProperty(String key) {
+            Object value = backing.get(key);
+            if (value == null) {
+                return super.getProperty(key);
+            }
+            
+            // Handle special case for bootstrap.servers which can be any Collection<String>
+            if ("bootstrap.servers".equals(key) && value instanceof java.util.Collection) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    java.util.Collection<String> serverCollection = (java.util.Collection<String>) value;
+                    return String.join(",", serverCollection);
+                } catch (ClassCastException e) {
+                    // If the collection doesn't contain strings, fall back to toString()
+                    logger.debug("bootstrap.servers collection contains non-String elements, falling back to toString()");
+                }
+            }
+            
+            // For all other cases, convert to String
+            return value.toString();
+        }
+
+        @Override
+        public String getProperty(String key, String defaultValue) {
+            String result = getProperty(key);
+            return result != null ? result : defaultValue;
+        }
     }
 }
