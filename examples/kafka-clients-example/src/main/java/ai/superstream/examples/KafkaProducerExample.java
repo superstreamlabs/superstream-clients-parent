@@ -29,8 +29,10 @@ public class KafkaProducerExample {
     public static void main(String[] args) {
         // Build the configuration map first using a mutable map
         Map<String, Object> mutableProps = new java.util.HashMap<>();
-        mutableProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, DEFAULT_BOOTSTRAP_SERVERS);
-        mutableProps.put(ProducerConfig.CLIENT_ID_CONFIG, CLIENT_ID);
+//        mutableProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, DEFAULT_BOOTSTRAP_SERVERS);
+//         mutableProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, Arrays.asList(DEFAULT_BOOTSTRAP_SERVERS));
+        mutableProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, List.of(DEFAULT_BOOTSTRAP_SERVERS));
+//        mutableProps.put(ProducerConfig.CLIENT_ID_CONFIG, CLIENT_ID);
         mutableProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         mutableProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         mutableProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
@@ -42,7 +44,6 @@ public class KafkaProducerExample {
 
         // Pass the immutable map directly to the KafkaProducer constructor
         Producer<String, String> producer = new KafkaProducer<String, String>(mutableProps);
-
         long recordCount = 50; // Number of messages to send
         try {
             while (true) {
