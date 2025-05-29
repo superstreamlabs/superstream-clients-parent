@@ -225,7 +225,7 @@ public class ClientStatsReporter {
                 }
                 producer.flush();
             } catch (Exception e) {
-                logger.error("[ERR-022] Cluster stats coordinator failed for {}: {}", bootstrapServers, e.getMessage(), e);
+                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics: {}. Full stack trace:", bootstrapServers, e.getMessage(), e);
             }
         }
     }

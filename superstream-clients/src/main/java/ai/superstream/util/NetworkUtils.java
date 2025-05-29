@@ -72,7 +72,7 @@ public class NetworkUtils {
             cachedHostname = localHost.getHostName();
             return cachedHostname;
         } catch (UnknownHostException e) {
-            logger.error("[ERR-034] Failed to determine local hostname", e);
+            logger.error("[ERR-091] Failed to determine local hostname", e);
             return "";
         }
     }
