@@ -78,10 +78,10 @@ public class MetadataConsumer {
             String json = records.iterator().next().value();
             return objectMapper.readValue(json, MetadataMessage.class);
         } catch (IOException e) {
-            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.");
+            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.", e);
             return null;
         } catch (Exception e) {
-            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.");
+            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics.", e);
             return null;
         }
     }
