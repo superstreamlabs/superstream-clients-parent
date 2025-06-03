@@ -3,6 +3,7 @@ package ai.superstream.core;
 import ai.superstream.model.ClientMessage;
 import ai.superstream.util.NetworkUtils;
 import ai.superstream.util.SuperstreamLogger;
+import ai.superstream.util.KafkaPropertiesUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
@@ -50,8 +51,8 @@ public class ClientReporter {
                                 String error) {
         Properties properties = new Properties();
 
-        // Copy all authentication-related and essential properties from the original client
-        copyAuthenticationProperties(originalClientProperties, properties);
+        // Copy essential client configuration properties from the original client
+        KafkaPropertiesUtils.copyClientConfigurationProperties(originalClientProperties, properties);
 
         properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -92,7 +93,7 @@ public class ClientReporter {
             logger.debug("Successfully reported client information to {}", CLIENTS_TOPIC);
             return true;
         } catch (Exception e) {
-            logger.error("[ERR-026] Error reporting client information", e);
+            logger.error("[ERR-026] Error reporting client information. Error: {} - {}", e.getClass().getName(), e.getMessage(), e);
             return false;
         }
     }
@@ -156,46 +157,6 @@ public class ClientReporter {
         }
 
         return completeConfig;
-    }
-
-    // Helper method to copy authentication properties
-    public static void copyAuthenticationProperties(Properties source, Properties destination) {
-        if (source == null || destination == null) {
-            logger.warn("Cannot copy authentication properties: source or destination is null");
-            return;
-        }
-        // Authentication-related properties
-        String[] authProps = {
-                // Security protocol
-                "security.protocol",
-
-                // SSL properties
-                "ssl.truststore.location", "ssl.truststore.password",
-                "ssl.keystore.location", "ssl.keystore.password",
-                "ssl.key.password", "ssl.endpoint.identification.algorithm",
-                "ssl.truststore.type", "ssl.keystore.type", "ssl.secure.random.implementation",
-                "ssl.enabled.protocols", "ssl.cipher.suites",
-
-                // SASL properties
-                "sasl.mechanism", "sasl.jaas.config",
-                "sasl.client.callback.handler.class", "sasl.login.callback.handler.class",
-                "sasl.login.class", "sasl.kerberos.service.name",
-                "sasl.kerberos.kinit.cmd", "sasl.kerberos.ticket.renew.window.factor",
-                "sasl.kerberos.ticket.renew.jitter", "sasl.kerberos.min.time.before.relogin",
-                "sasl.login.refresh.window.factor", "sasl.login.refresh.window.jitter",
-                "sasl.login.refresh.min.period.seconds", "sasl.login.refresh.buffer.seconds",
-
-                // Other important properties to preserve
-                "request.timeout.ms", "retry.backoff.ms", "connections.max.idle.ms",
-                "reconnect.backoff.ms", "reconnect.backoff.max.ms"
-        };
-
-        // Copy all authentication properties if they exist in the source
-        for (String prop : authProps) {
-            if (source.containsKey(prop)) {
-                destination.put(prop, source.get(prop));
-            }
-        }
     }
 
     /**

@@ -4,6 +4,7 @@ import ai.superstream.agent.KafkaProducerInterceptor;
 import ai.superstream.model.ClientStatsMessage;
 import ai.superstream.util.NetworkUtils;
 import ai.superstream.util.SuperstreamLogger;
+import ai.superstream.util.KafkaPropertiesUtils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -74,9 +75,9 @@ public class ClientStatsReporter {
 
         this.statsCollector = new ClientStatsCollector();
 
-        // Copy authentication properties from the original client
+        // Copy essential client configuration properties from the original client
         this.producerProperties = new Properties();
-        ClientReporter.copyAuthenticationProperties(clientProperties, this.producerProperties);
+        KafkaPropertiesUtils.copyClientConfigurationProperties(clientProperties, this.producerProperties);
 
         // Set up basic producer properties
         this.producerProperties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
@@ -165,7 +166,7 @@ public class ClientStatsReporter {
             logger.debug("Producer {} stats sent: before={} bytes, after={} bytes",
                     clientId, totalBytesBefore, totalBytesAfter);
         } catch (Exception e) {
-            logger.error("[ERR-021] Failed to drain stats for client {}", clientId, e);
+            logger.error("[ERR-021] Failed to drain stats for client {}. Error: {} - {}", clientId, e.getClass().getName(), e.getMessage(), e);
         }
     }
 
@@ -225,7 +226,7 @@ public class ClientStatsReporter {
                 }
                 producer.flush();
             } catch (Exception e) {
-                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics: {}. Full stack trace:", bootstrapServers, e.getMessage(), e);
+                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics. Error: {} - {}", bootstrapServers, e.getClass().getName(), e.getMessage(), e);
             }
         }
     }

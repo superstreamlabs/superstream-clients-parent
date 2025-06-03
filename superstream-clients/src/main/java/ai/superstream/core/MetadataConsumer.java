@@ -2,6 +2,7 @@ package ai.superstream.core;
 
 import ai.superstream.model.MetadataMessage;
 import ai.superstream.util.SuperstreamLogger;
+import ai.superstream.util.KafkaPropertiesUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -32,9 +33,8 @@ public class MetadataConsumer {
     public MetadataMessage getMetadataMessage(String bootstrapServers, Properties originalClientProperties) {
         Properties properties = new Properties();
 
-        // Copy all authentication-related and essential properties from the original
-        // client
-        copyAuthenticationProperties(originalClientProperties, properties);
+        // Copy essential client configuration properties from the original client
+        KafkaPropertiesUtils.copyClientConfigurationProperties(originalClientProperties, properties);
 
         properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
@@ -46,7 +46,7 @@ public class MetadataConsumer {
             // Check if the metadata topic exists
             Set<String> topics = consumer.listTopics().keySet();
             if (!topics.contains(METADATA_TOPIC)) {
-                logger.error("[ERR-034] Superstream internal topic is missing. This topic is required for Superstream to function properly. Please contact the Superstream team for assistance.");
+                logger.error("[ERR-034] Superstream internal topic is missing. This topic is required for Superstream to function properly. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics.");
                 return null;
             }
 
@@ -78,51 +78,11 @@ public class MetadataConsumer {
             String json = records.iterator().next().value();
             return objectMapper.readValue(json, MetadataMessage.class);
         } catch (IOException e) {
-            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.", e);
+            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists. Error: {} - {}", e.getClass().getName(), e.getMessage(), e);
             return null;
         } catch (Exception e) {
-            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics.", e);
+            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics. Error: {} - {}", e.getClass().getName(), e.getMessage(), e);
             return null;
-        }
-    }
-
-    // Helper method to copy authentication properties
-    private void copyAuthenticationProperties(Properties source, Properties destination) {
-        if (source == null || destination == null) {
-            logger.error("[ERR-029] Cannot copy authentication properties: source or destination is null");
-            return;
-        }
-        // Authentication-related properties
-        String[] authProps = {
-                // Security protocol
-                "security.protocol",
-
-                // SSL properties
-                "ssl.truststore.location", "ssl.truststore.password",
-                "ssl.keystore.location", "ssl.keystore.password",
-                "ssl.key.password", "ssl.endpoint.identification.algorithm",
-                "ssl.truststore.type", "ssl.keystore.type", "ssl.secure.random.implementation",
-                "ssl.enabled.protocols", "ssl.cipher.suites",
-
-                // SASL properties
-                "sasl.mechanism", "sasl.jaas.config",
-                "sasl.client.callback.handler.class", "sasl.login.callback.handler.class",
-                "sasl.login.class", "sasl.kerberos.service.name",
-                "sasl.kerberos.kinit.cmd", "sasl.kerberos.ticket.renew.window.factor",
-                "sasl.kerberos.ticket.renew.jitter", "sasl.kerberos.min.time.before.relogin",
-                "sasl.login.refresh.window.factor", "sasl.login.refresh.window.jitter",
-                "sasl.login.refresh.min.period.seconds", "sasl.login.refresh.buffer.seconds",
-
-                // Other important properties to preserve
-                "request.timeout.ms", "retry.backoff.ms", "connections.max.idle.ms",
-                "reconnect.backoff.ms", "reconnect.backoff.max.ms"
-        };
-
-        // Copy all authentication properties if they exist in the source
-        for (String prop : authProps) {
-            if (source.containsKey(prop)) {
-                destination.put(prop, source.get(prop));
-            }
         }
     }
 }
