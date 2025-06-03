@@ -63,6 +63,25 @@ public class ClientReporter {
         properties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);  // 16KB batch size
         properties.put(ProducerConfig.LINGER_MS_CONFIG, 1000);
 
+        // Log the configuration before creating producer
+        if (SuperstreamLogger.isDebugEnabled()) {
+            StringBuilder configLog = new StringBuilder("Creating internal ClientReporter producer with configuration: ");
+            properties.forEach((key, value) -> {
+                // Mask sensitive values
+                if (key.toString().toLowerCase().contains("password") || 
+                    key.toString().toLowerCase().contains("sasl.jaas.config")) {
+                    configLog.append(key).append("=[MASKED], ");
+                } else {
+                    configLog.append(key).append("=").append(value).append(", ");
+                }
+            });
+            // Remove trailing comma and space
+            if (configLog.length() > 2) {
+                configLog.setLength(configLog.length() - 2);
+            }
+            logger.debug(configLog.toString());
+        }
+
         try (Producer<String, String> producer = new KafkaProducer<>(properties)) {
             // Create the client message
             ClientMessage message = new ClientMessage(
@@ -93,7 +112,13 @@ public class ClientReporter {
             logger.debug("Successfully reported client information to {}", CLIENTS_TOPIC);
             return true;
         } catch (Exception e) {
-            logger.error("[ERR-026] Error reporting client information. Error: {} - {}", e.getClass().getName(), e.getMessage(), e);
+            // Convert stack trace to string
+            java.io.StringWriter sw = new java.io.StringWriter();
+            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+            e.printStackTrace(pw);
+            String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
+            logger.error("[ERR-026] Error reporting client information. Error: {} - {}. Stack trace: {}", 
+                e.getClass().getName(), e.getMessage(), stackTrace);
             return false;
         }
     }

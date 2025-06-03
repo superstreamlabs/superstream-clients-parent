@@ -166,7 +166,13 @@ public class ClientStatsReporter {
             logger.debug("Producer {} stats sent: before={} bytes, after={} bytes",
                     clientId, totalBytesBefore, totalBytesAfter);
         } catch (Exception e) {
-            logger.error("[ERR-021] Failed to drain stats for client {}. Error: {} - {}", clientId, e.getClass().getName(), e.getMessage(), e);
+            // Convert stack trace to string
+            java.io.StringWriter sw = new java.io.StringWriter();
+            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+            e.printStackTrace(pw);
+            String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
+            logger.error("[ERR-021] Failed to drain stats for client {}. Error: {} - {}. Stack trace: {}", 
+                clientId, e.getClass().getName(), e.getMessage(), stackTrace);
         }
     }
 
@@ -220,13 +226,39 @@ public class ClientStatsReporter {
         private void run() {
             if (reporters.isEmpty())
                 return;
+            
+            // Log the configuration before creating producer
+            if (SuperstreamLogger.isDebugEnabled()) {
+                StringBuilder configLog = new StringBuilder("Creating internal ClientStatsReporter producer with configuration: ");
+                baseProps.forEach((key, value) -> {
+                    // Mask sensitive values
+                    if (key.toString().toLowerCase().contains("password") || 
+                        key.toString().toLowerCase().contains("sasl.jaas.config")) {
+                        configLog.append(key).append("=[MASKED], ");
+                    } else {
+                        configLog.append(key).append("=").append(value).append(", ");
+                    }
+                });
+                // Remove trailing comma and space
+                if (configLog.length() > 2) {
+                    configLog.setLength(configLog.length() - 2);
+                }
+                logger.debug(configLog.toString());
+            }
+            
             try (Producer<String, String> producer = new KafkaProducer<>(baseProps)) {
                 for (ClientStatsReporter r : reporters) {
                     r.drainInto(producer);
                 }
                 producer.flush();
             } catch (Exception e) {
-                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics. Error: {} - {}", bootstrapServers, e.getClass().getName(), e.getMessage(), e);
+                // Convert stack trace to string
+                java.io.StringWriter sw = new java.io.StringWriter();
+                java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+                e.printStackTrace(pw);
+                String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
+                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics. Error: {} - {}. Stack trace: {}", 
+                    bootstrapServers, e.getClass().getName(), e.getMessage(), stackTrace);
             }
         }
     }
