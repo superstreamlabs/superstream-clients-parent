@@ -8,6 +8,7 @@ import net.bytebuddy.asm.Advice;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collection;
 import java.util.Properties;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -95,8 +96,7 @@ public class KafkaProducerInterceptor {
             return;
         }
 
-        // Check if this is a direct call from application code or an internal
-        // delegation
+        // Check if this is a direct call from application code or an internal delegation
         if (!isInitialProducerCreation()) {
             return;
         }
@@ -119,10 +119,10 @@ public class KafkaProducerInterceptor {
             // Generate a UUID for this upcoming producer instance and push onto UUID stack
             String producerUuid = java.util.UUID.randomUUID().toString();
             TL_UUID_STACK.get().push(producerUuid);
-        }  else {
-          logger.error("[ERR-002] Could not extract properties from producer arguments");
-          // here we can not report the error to the clients topic as we were not able to extract the properties
-          return;
+        } else {
+            logger.error("[ERR-002] Could not extract properties from producer arguments");
+            // here we can not report the error to the clients topic as we were not able to extract the properties
+            return;
         }
 
         // Detect immutable Map argument (e.g., Collections.unmodifiableMap) so we can skip optimisation early
@@ -160,40 +160,49 @@ public class KafkaProducerInterceptor {
                 return;
             }
 
-            // Extract bootstrap servers
-            String bootstrapServers = properties.getProperty("bootstrap.servers");
+            // Extract and normalize bootstrap servers
+            // IMPORTANT: We use properties.get() instead of getProperty() because
+            // getProperty() only returns String values and returns null for List/Collection values.
+            // This change enables support for all Kafka-supported bootstrap.servers formats.
+            Object bootstrapValue = properties.get("bootstrap.servers");
+            String bootstrapServers = normalizeBootstrapServers(bootstrapValue);
+
             if (bootstrapServers == null || bootstrapServers.trim().isEmpty()) {
-                logger.error("[ERR-004] bootstrap.servers is not set, cannot optimize");
+                logger.error("[ERR-004] bootstrap.servers is not set or empty, cannot optimize");
                 return;
             }
+
+            // Update the properties with normalized value to ensure consistency
+            // This is important because other parts of the code expect a String value
+            properties.setProperty("bootstrap.servers", bootstrapServers);
 
             if (immutableConfigDetected && immutableOriginalMap != null) {
                 String errMsg = String.format("[ERR-010] Cannot optimize KafkaProducer configuration: received an unmodifiable Map (%s). Please pass a mutable java.util.Properties or java.util.Map instead.",
                         immutableOriginalMap.getClass().getName());
                 logger.error(errMsg);
-    
+
                 // Report the error to the client
                 try {
                     // Get metadata message before reporting
                     MetadataMessage metadataMessage = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServers, properties);
-                    
+
                     SuperstreamManager.getInstance().reportClientInformation(
-                        bootstrapServers,
-                        properties,
-                        metadataMessage,
-                        clientId,
-                        properties,
-                        Collections.emptyMap(), // no optimized configuration since we can't optimize
-                        errMsg
+                            bootstrapServers,
+                            properties,
+                            metadataMessage,
+                            clientId,
+                            properties,
+                            Collections.emptyMap(), // no optimized configuration since we can't optimize
+                            errMsg
                     );
                 } catch (Exception e) {
                     logger.error("[ERR-058] Failed to report client error: {}", e.getMessage(), e);
                 }
-    
+
                 // Clean up ThreadLocals so that onExit knows to skip reporter setup
                 TL_PROPS_STACK.remove();
                 TL_UUID_STACK.remove();
-    
+
                 // Do NOT attempt optimisation
                 return;
             }
@@ -212,7 +221,7 @@ public class KafkaProducerInterceptor {
     /**
      * Called after the KafkaProducer constructor.
      * Used to register the producer for metrics collection.
-     * 
+     *
      * @param producer The KafkaProducer instance that was just created
      */
     @Advice.OnMethodExit
@@ -251,10 +260,18 @@ public class KafkaProducerInterceptor {
                 TL_UUID_STACK.remove();
             }
 
+            // Use the normalized bootstrap servers value
+            // At this point, bootstrap.servers should already be normalized to String format
             String bootstrapServers = producerProps.getProperty("bootstrap.servers");
             if (bootstrapServers == null || bootstrapServers.isEmpty()) {
-                logger.error("[ERR-007] bootstrap.servers missing in captured properties; skipping reporter setup");
-                return;
+                // Fallback: try to normalize again in case the value was changed
+                Object bootstrapValue = producerProps.get("bootstrap.servers");
+                bootstrapServers = normalizeBootstrapServers(bootstrapValue);
+
+                if (bootstrapServers == null || bootstrapServers.isEmpty()) {
+                    logger.error("[ERR-007] bootstrap.servers missing in captured properties; skipping reporter setup");
+                    return;
+                }
             }
 
             String rawClientId = producerProps.getProperty("client.id"); // may be null or empty
@@ -277,22 +294,22 @@ public class KafkaProducerInterceptor {
                 // Create a reporter for this producer instance – pass the original client.id
                 ClientStatsReporter reporter = new ClientStatsReporter(bootstrapServers, producerProps, clientIdForStats, producerUuid);
 
-                    // Create metrics info for this producer
-                    ProducerMetricsInfo metricsInfo = new ProducerMetricsInfo(producer, reporter);
+                // Create metrics info for this producer
+                ProducerMetricsInfo metricsInfo = new ProducerMetricsInfo(producer, reporter);
 
-                    // Register with the shared collector
-                    producerMetricsMap.put(producerId, metricsInfo);
-                    clientStatsReporters.put(producerId, reporter);
+                // Register with the shared collector
+                producerMetricsMap.put(producerId, metricsInfo);
+                clientStatsReporters.put(producerId, reporter);
 
-                    // Pop configuration info from ThreadLocal stack (if any) and attach to reporter
-                    java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
-                    ConfigInfo cfgInfo = cfgStack.isEmpty()? null : cfgStack.pop();
-                    if (cfgStack.isEmpty()) {
-                        TL_CFG_STACK.remove();
-                    }
-                    if (cfgInfo != null) {
-                        reporter.setConfigurations(cfgInfo.originalConfig, cfgInfo.optimizedConfig);
-                    }
+                // Pop configuration info from ThreadLocal stack (if any) and attach to reporter
+                java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
+                ConfigInfo cfgInfo = cfgStack.isEmpty()? null : cfgStack.pop();
+                if (cfgStack.isEmpty()) {
+                    TL_CFG_STACK.remove();
+                }
+                if (cfgInfo != null) {
+                    reporter.setConfigurations(cfgInfo.originalConfig, cfgInfo.optimizedConfig);
+                }
 
                 logger.debug("Producer {} registered with shared metrics collector", producerId);
             }
@@ -568,6 +585,67 @@ public class KafkaProducerInterceptor {
                 return method;
             }
         }
+        return null;
+    }
+
+
+    /**
+     * Normalizes bootstrap.servers value to a String format.
+     *
+     * Kafka accepts bootstrap.servers in multiple formats:
+     * - String: "localhost:9092" or "host1:9092,host2:9092"
+     * - List: Arrays.asList("host1:9092", "host2:9092")
+     * - Any Collection<String>: ArrayList, LinkedList, List.of(), etc.
+     *
+     * This method converts any supported format to a comma-separated String
+     * to ensure consistent handling throughout the Superstream SDK.
+     *
+     * Note: This method must be public because it's called from instrumented code
+     * in the KafkaProducer constructor via ByteBuddy.
+     *
+     * @param bootstrapValue The raw value from properties.get("bootstrap.servers")
+     * @return Normalized String of bootstrap servers, or null if invalid
+     */
+    public static String normalizeBootstrapServers(Object bootstrapValue) {
+        if (bootstrapValue == null) {
+            return null;
+        }
+
+        // Case 1: Already a String - most common case
+        if (bootstrapValue instanceof String) {
+            String value = (String) bootstrapValue;
+            return value.trim().isEmpty() ? null : value;
+        }
+
+        // Case 2: Collection of servers (List, Set, etc.)
+        if (bootstrapValue instanceof Collection) {
+            try {
+                @SuppressWarnings("unchecked")
+                Collection<String> servers = (Collection<String>) bootstrapValue;
+
+                // Filter out null/empty values and join with comma
+                String normalized = servers.stream()
+                        .filter(s -> s != null && !s.trim().isEmpty())
+                        .map(String::trim)
+                        .reduce((a, b) -> a + "," + b)
+                        .orElse(null);
+
+                if (normalized != null) {
+                    logger.debug("Normalized bootstrap.servers from {} to String: {}",
+                            bootstrapValue.getClass().getSimpleName(), normalized);
+                }
+
+                return normalized;
+            } catch (ClassCastException e) {
+                logger.error("[ERR-020] bootstrap.servers collection contains non-String elements: {}",
+                        e.getMessage());
+                return null;
+            }
+        }
+
+        // Case 3: Unsupported type
+        logger.error("[ERR-021] Unsupported bootstrap.servers type: {} (value: {})",
+                bootstrapValue.getClass().getName(), bootstrapValue);
         return null;
     }
 

@@ -10,8 +10,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
@@ -22,7 +24,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.concurrent.ListenableFuture;
 import org.springframework.util.concurrent.ListenableFutureCallback;
 
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -30,26 +34,29 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Spring Boot application that creates multiple producers to multiple clusters using Spring Kafka.
  * Uses ProducerFactory and KafkaTemplate from spring-kafka library.
  *
+ * Loads configuration from application.yml file and supports different bootstrap server formats.
+ *
  * This demonstrates Superstream SDK's ability to intercept and optimize Spring Kafka producers.
  *
  * Run with:
  * java -javaagent:path/to/superstream-clients-1.0.0.jar -jar spring-kafka-multi-producer-example.jar
  *
- * Environment variables:
- * - CLUSTER1_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 1 (default: localhost:9092)
- * - CLUSTER2_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 2 (default: localhost:9093)
- * - CLUSTER3_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 3 (default: localhost:9094)
+ * Configuration is loaded from application.yml, which can be overridden by environment variables:
+ * - CLUSTER1_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 1
+ * - CLUSTER2_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 2
+ * - CLUSTER3_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 3
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize
  * - SUPERSTREAM_DISABLED: Set to true to disable Superstream optimization
  * - SUPERSTREAM_LATENCY_SENSITIVE: Set to true to preserve linger.ms values
  * - SUPERSTREAM_DEBUG: Set to true for detailed debug logging
- * - SPRING_KAFKA_COMPRESSION: Compression type (default: snappy)
- * - SPRING_KAFKA_BATCH_SIZE: Batch size in bytes (default: 16384)
- * - SPRING_KAFKA_LINGER_MS: Linger time in milliseconds (default: 50)
+ * - SPRING_KAFKA_COMPRESSION: Compression type
+ * - SPRING_KAFKA_BATCH_SIZE: Batch size in bytes
+ * - SPRING_KAFKA_LINGER_MS: Linger time in milliseconds
  * - ENABLE_TRANSACTIONAL: Set to true to enable transactional producers
  */
 @SpringBootApplication
 @EnableScheduling
+@PropertySource("classpath:application.yml")
 public class SpringKafkaMultiProducerExample implements CommandLineRunner {
     private static final Logger logger = LoggerFactory.getLogger(SpringKafkaMultiProducerExample.class);
 
@@ -59,6 +66,7 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
     public static void main(String[] args) {
         // Log environment variables at startup
         logger.info("Starting SpringKafkaMultiProducerExample");
+        logger.info("Loading configuration from application.yml");
         logger.info("Environment variables:");
         logger.info("  CLUSTER1_BOOTSTRAP_SERVERS: {}", System.getenv("CLUSTER1_BOOTSTRAP_SERVERS"));
         logger.info("  CLUSTER2_BOOTSTRAP_SERVERS: {}", System.getenv("CLUSTER2_BOOTSTRAP_SERVERS"));
@@ -75,15 +83,18 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
     @Override
     public void run(String... args) {
         logger.info("Spring Kafka application started successfully");
+        logger.info("Configuration loaded from application.yml");
         logger.info("KafkaMessageService will send messages every 30 seconds");
     }
 
     /**
      * Configuration class that creates ProducerFactory and KafkaTemplate beans for different clusters
+     * Loads properties from application.yml
      */
     @Configuration
     public static class KafkaConfiguration {
 
+        // Load from application.yml
         @Value("${cluster1.bootstrap.servers:localhost:9092}")
         private String cluster1Servers;
 
@@ -102,11 +113,17 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
         @Value("${spring.kafka.linger.ms:50}")
         private Integer lingerMs;
 
-        // Cluster 1 - Producer Factory A
+        @Value("${app.kafka.transactional.enabled:false}")
+        private boolean transactionalEnabled;
+
+        @Value("${app.kafka.transactional.id-prefix:spring-kafka-tx-}")
+        private String transactionalIdPrefix;
+
+        // Cluster 1 - Producer Factory A with String bootstrap format
         @Bean(name = "cluster1ProducerFactoryA")
         public ProducerFactory<String, String> cluster1ProducerFactoryA() {
-            logger.info("Creating ProducerFactory for cluster1 - factoryA");
-            Map<String, Object> props = createProducerConfigs(cluster1Servers, "spring-kafka-cluster1-a");
+            logger.info("Creating ProducerFactory for cluster1 - factoryA with String bootstrap format");
+            Map<String, Object> props = createProducerConfigsString(cluster1Servers, "spring-kafka-cluster1-a");
             return new DefaultKafkaProducerFactory<>(props);
         }
 
@@ -115,11 +132,11 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
             return new KafkaTemplate<>(cluster1ProducerFactoryA());
         }
 
-        // Cluster 1 - Producer Factory B with different configuration
+        // Cluster 1 - Producer Factory B with List bootstrap format
         @Bean(name = "cluster1ProducerFactoryB")
         public ProducerFactory<String, String> cluster1ProducerFactoryB() {
-            logger.info("Creating ProducerFactory for cluster1 - factoryB");
-            Map<String, Object> props = createProducerConfigs(cluster1Servers, "spring-kafka-cluster1-b");
+            logger.info("Creating ProducerFactory for cluster1 - factoryB with List bootstrap format");
+            Map<String, Object> props = createProducerConfigsList(cluster1Servers, "spring-kafka-cluster1-b");
             // Override some properties for this producer
             props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "gzip");
             props.put(ProducerConfig.LINGER_MS_CONFIG, 200);
@@ -131,11 +148,11 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
             return new KafkaTemplate<>(cluster1ProducerFactoryB());
         }
 
-        // Cluster 2 - Standard Producer Factory
+        // Cluster 2 - Standard Producer Factory with Arrays.asList() format
         @Bean(name = "cluster2ProducerFactory")
         public ProducerFactory<String, String> cluster2ProducerFactory() {
-            logger.info("Creating ProducerFactory for cluster2");
-            Map<String, Object> props = createProducerConfigs(cluster2Servers, "spring-kafka-cluster2");
+            logger.info("Creating ProducerFactory for cluster2 with Arrays.asList() bootstrap format");
+            Map<String, Object> props = createProducerConfigsArraysList(cluster2Servers, "spring-kafka-cluster2");
             return new DefaultKafkaProducerFactory<>(props);
         }
 
@@ -144,22 +161,21 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
             return new KafkaTemplate<>(cluster2ProducerFactory());
         }
 
-        // Cluster 3 - Transactional Producer Factory (if enabled)
+        // Cluster 3 - Transactional Producer Factory with List.of() format
         @Bean(name = "cluster3ProducerFactory")
         public ProducerFactory<String, String> cluster3ProducerFactory() {
-            logger.info("Creating ProducerFactory for cluster3");
-            Map<String, Object> props = createProducerConfigs(cluster3Servers, "spring-kafka-cluster3");
+            logger.info("Creating ProducerFactory for cluster3 with List.of() bootstrap format");
+            Map<String, Object> props = createProducerConfigsListOf(cluster3Servers, "spring-kafka-cluster3");
 
-            // Check if transactional mode is enabled
-            boolean enableTransactional = "true".equalsIgnoreCase(System.getenv("ENABLE_TRANSACTIONAL"));
-            if (enableTransactional) {
-                props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "spring-kafka-tx-");
-                logger.info("Transactional mode enabled for cluster3");
+            // Check if transactional mode is enabled from application.yml
+            if (transactionalEnabled) {
+                props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, transactionalIdPrefix);
+                logger.info("Transactional mode enabled for cluster3 with prefix: {}", transactionalIdPrefix);
             }
 
             DefaultKafkaProducerFactory<String, String> factory = new DefaultKafkaProducerFactory<>(props);
-            if (enableTransactional) {
-                factory.setTransactionIdPrefix("spring-kafka-tx-");
+            if (transactionalEnabled) {
+                factory.setTransactionIdPrefix(transactionalIdPrefix);
             }
 
             return factory;
@@ -170,34 +186,53 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
             return new KafkaTemplate<>(cluster3ProducerFactory());
         }
 
-        private Map<String, Object> createProducerConfigs(String bootstrapServers, String clientIdPrefix) {
+        // Create producer configs with String format
+        private Map<String, Object> createProducerConfigsString(String bootstrapServers, String clientIdPrefix) {
+            Map<String, Object> props = createBaseConfigs(clientIdPrefix);
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+            logger.info("Created producer config with String bootstrap format: {}", bootstrapServers);
+            return props;
+        }
+
+        // Create producer configs with List format
+        private Map<String, Object> createProducerConfigsList(String bootstrapServers, String clientIdPrefix) {
+            Map<String, Object> props = createBaseConfigs(clientIdPrefix);
+            List<String> serversList = Arrays.asList(bootstrapServers.split(","));
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, serversList);
+            logger.info("Created producer config with List bootstrap format: {}", serversList);
+            return props;
+        }
+
+        // Create producer configs with Arrays.asList() format
+        private Map<String, Object> createProducerConfigsArraysList(String bootstrapServers, String clientIdPrefix) {
+            Map<String, Object> props = createBaseConfigs(clientIdPrefix);
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, Arrays.asList(bootstrapServers.split(",")));
+            logger.info("Created producer config with Arrays.asList() bootstrap format");
+            return props;
+        }
+
+        // Create producer configs with List.of() format (Java 9+)
+        private Map<String, Object> createProducerConfigsListOf(String bootstrapServers, String clientIdPrefix) {
+            Map<String, Object> props = createBaseConfigs(clientIdPrefix);
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, List.of(bootstrapServers.split(",")));
+            logger.info("Created producer config with List.of() bootstrap format");
+            return props;
+        }
+
+        // Create base configuration from application.yml
+        private Map<String, Object> createBaseConfigs(String clientIdPrefix) {
             Map<String, Object> props = new HashMap<>();
 
-            // Use environment variables if available
-            String servers = System.getenv(bootstrapServers.toUpperCase().replace(".", "_").replace(":", "") + "_BOOTSTRAP_SERVERS");
-            if (servers == null) {
-                servers = bootstrapServers;
-            }
-
-            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, servers);
             props.put(ProducerConfig.CLIENT_ID_CONFIG, clientIdPrefix + "-" + System.currentTimeMillis());
             props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
             props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
 
-            // Configurable properties from environment
-            String compressionFromEnv = System.getenv("SPRING_KAFKA_COMPRESSION");
-            props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG,
-                    compressionFromEnv != null ? compressionFromEnv : compressionType);
+            // Load from application.yml with environment variable override support
+            props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, compressionType);
+            props.put(ProducerConfig.BATCH_SIZE_CONFIG, batchSize);
+            props.put(ProducerConfig.LINGER_MS_CONFIG, lingerMs);
 
-            String batchSizeFromEnv = System.getenv("SPRING_KAFKA_BATCH_SIZE");
-            props.put(ProducerConfig.BATCH_SIZE_CONFIG,
-                    batchSizeFromEnv != null ? Integer.parseInt(batchSizeFromEnv) : batchSize);
-
-            String lingerMsFromEnv = System.getenv("SPRING_KAFKA_LINGER_MS");
-            props.put(ProducerConfig.LINGER_MS_CONFIG,
-                    lingerMsFromEnv != null ? Integer.parseInt(lingerMsFromEnv) : lingerMs);
-
-            // Fixed properties
+            // Fixed properties from application.yml
             props.put(ProducerConfig.ACKS_CONFIG, "all");
             props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
             props.put(ProducerConfig.RETRIES_CONFIG, 3);
@@ -216,6 +251,7 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
 
     /**
      * Service that sends messages using Spring Kafka templates
+     * Topic names are loaded from application.yml
      */
     @Component
     public static class KafkaMessageService {
@@ -224,6 +260,21 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
         private final AtomicInteger messageCounter = new AtomicInteger(0);
         private final AtomicInteger successCounter = new AtomicInteger(0);
         private final AtomicInteger errorCounter = new AtomicInteger(0);
+
+        @Value("${app.kafka.topics.cluster1a:spring-kafka-topic-1a}")
+        private String topicCluster1a;
+
+        @Value("${app.kafka.topics.cluster1b:spring-kafka-topic-1b}")
+        private String topicCluster1b;
+
+        @Value("${app.kafka.topics.cluster2:spring-kafka-topic-2}")
+        private String topicCluster2;
+
+        @Value("${app.kafka.topics.cluster3:spring-kafka-topic-3}")
+        private String topicCluster3;
+
+        @Value("${app.kafka.transactional.enabled:false}")
+        private boolean transactionalEnabled;
 
         @Autowired
         @Qualifier("cluster1KafkaTemplateA")
@@ -244,22 +295,23 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
         @Scheduled(fixedDelay = 30000, initialDelay = 5000)
         public void sendMessagesToAllClusters() {
             logger.info("Starting to send messages to all clusters using Spring Kafka");
+            logger.info("Topics loaded from application.yml: {}, {}, {}, {}",
+                    topicCluster1a, topicCluster1b, topicCluster2, topicCluster3);
 
             // Send to cluster 1 with template A
-            sendBatchWithTemplate(cluster1TemplateA, "spring-kafka-topic-1a", "cluster1-templateA", 25);
+            sendBatchWithTemplate(cluster1TemplateA, topicCluster1a, "cluster1-templateA", 25);
 
             // Send to cluster 1 with template B
-            sendBatchWithTemplate(cluster1TemplateB, "spring-kafka-topic-1b", "cluster1-templateB", 30);
+            sendBatchWithTemplate(cluster1TemplateB, topicCluster1b, "cluster1-templateB", 30);
 
             // Send to cluster 2
-            sendBatchWithTemplate(cluster2Template, "spring-kafka-topic-2", "cluster2-template", 35);
+            sendBatchWithTemplate(cluster2Template, topicCluster2, "cluster2-template", 35);
 
             // Send to cluster 3 (potentially transactional)
-            boolean isTransactional = "true".equalsIgnoreCase(System.getenv("ENABLE_TRANSACTIONAL"));
-            if (isTransactional) {
-                sendTransactionalBatch(cluster3Template, "spring-kafka-topic-3", "cluster3-template-tx", 40);
+            if (transactionalEnabled) {
+                sendTransactionalBatch(cluster3Template, topicCluster3, "cluster3-template-tx", 40);
             } else {
-                sendBatchWithTemplate(cluster3Template, "spring-kafka-topic-3", "cluster3-template", 40);
+                sendBatchWithTemplate(cluster3Template, topicCluster3, "cluster3-template", 40);
             }
 
             logger.info("Message stats - Total: {}, Success: {}, Errors: {}",
@@ -335,7 +387,8 @@ public class SpringKafkaMultiProducerExample implements CommandLineRunner {
                             + "\"payload\":\"%s\","
                             + "\"metadata\":{"
                             + "\"processedBy\":\"KafkaTemplate\","
-                            + "\"springBootVersion\":\"2.7.x\""
+                            + "\"springBootVersion\":\"2.7.x\","
+                            + "\"configSource\":\"application.yml\""
                             + "}"
                             + "}"
                             + "}",

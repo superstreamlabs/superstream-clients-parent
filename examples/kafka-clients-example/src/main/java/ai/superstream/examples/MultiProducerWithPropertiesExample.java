@@ -18,13 +18,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Example application that creates multiple producers to multiple Kafka clusters.
- * This demonstrates Superstream SDK's ability to handle multiple producers across different clusters.
- *
- * Each producer uses a different bootstrap server format to test compatibility.
+ * Example application that creates multiple producers to multiple Kafka clusters using Properties.
+ * This demonstrates Superstream SDK's ability to handle producers configured with Properties.
  *
  * Run with:
- * java -javaagent:path/to/superstream-clients-1.0.0.jar -jar multi-producer-multi-cluster-example.jar
+ * java -javaagent:path/to/superstream-clients-1.0.0.jar -jar multi-producer-with-properties-example.jar
  *
  * Environment variables:
  * - CLUSTER1_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 1 (default: localhost:9092)
@@ -35,8 +33,8 @@ import java.util.concurrent.TimeUnit;
  * - SUPERSTREAM_LATENCY_SENSITIVE: Set to true to preserve linger.ms values
  * - SUPERSTREAM_DEBUG: Set to true for detailed debug logging
  */
-public class MultiProducerMultiClusterExample {
-    private static final Logger logger = LoggerFactory.getLogger(MultiProducerMultiClusterExample.class);
+public class MultiProducerWithPropertiesExample {
+    private static final Logger logger = LoggerFactory.getLogger(MultiProducerWithPropertiesExample.class);
 
     // Read cluster configurations from environment variables
     private static final String CLUSTER1_SERVERS = System.getenv("CLUSTER1_BOOTSTRAP_SERVERS") != null ?
@@ -55,11 +53,12 @@ public class MultiProducerMultiClusterExample {
     // Producer configurations
     private static final String COMPRESSION_TYPE = "lz4"; // Will be overridden by Superstream if configured
     private static final Integer BATCH_SIZE = 32768; // 32KB - smaller than recommendation to test override
+    private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
 
     private static final String MESSAGE_VALUE = generateLargeCompressibleMessage();
 
     public static void main(String[] args) {
-        logger.info("Starting MultiProducerMultiClusterExample");
+        logger.info("Starting MultiProducerWithPropertiesExample");
         logger.info("Environment variables:");
         logger.info("  CLUSTER1_BOOTSTRAP_SERVERS: {}", CLUSTER1_SERVERS);
         logger.info("  CLUSTER2_BOOTSTRAP_SERVERS: {}", CLUSTER2_SERVERS);
@@ -73,7 +72,7 @@ public class MultiProducerMultiClusterExample {
         ExecutorService executorService = Executors.newFixedThreadPool(4);
 
         try {
-            // Create producers for Cluster 1 with different bootstrap formats
+            // Create producers for Cluster 1 with different bootstrap server formats
             Producer<String, String> producer1A = createProducerWithString("producer-cluster1-a", CLUSTER1_SERVERS);
             Producer<String, String> producer1B = createProducerWithList("producer-cluster1-b", CLUSTER1_SERVERS);
 
@@ -88,7 +87,7 @@ public class MultiProducerMultiClusterExample {
             producers.add(producer2);
             producers.add(producer3);
 
-            logger.info("Created {} producers across {} clusters using different bootstrap formats", producers.size(), 3);
+            logger.info("Created {} producers across {} clusters", producers.size(), 3);
 
             // Send messages concurrently to all clusters
             executorService.submit(() -> sendMessages(producer1A, TOPIC_CLUSTER1_A, "cluster1-producerA"));
@@ -124,63 +123,82 @@ public class MultiProducerMultiClusterExample {
         }
     }
 
-    // Create producer with String format bootstrap servers
     private static Producer<String, String> createProducerWithString(String clientId, String bootstrapServers) {
-        Properties props = createBaseProperties(clientId);
+        Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
+        props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 100);
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
 
         logger.info("Creating producer with clientId: {} for cluster: {} using String bootstrap format",
                 clientId, bootstrapServers);
         return new KafkaProducer<>(props);
     }
 
-    // Create producer with List format bootstrap servers
     private static Producer<String, String> createProducerWithList(String clientId, String bootstrapServers) {
-        Properties props = createBaseProperties(clientId);
-
-        List<String> serversList = new ArrayList<>();
-        for (String server : bootstrapServers.split(",")) {
-            serversList.add(server.trim());
-        }
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, serversList);
-
-        logger.info("Creating producer with clientId: {} for cluster: {} using List bootstrap format",
-                clientId, bootstrapServers);
-        return new KafkaProducer<>(props);
-    }
-
-    // Create producer with Arrays.asList() format bootstrap servers
-    private static Producer<String, String> createProducerWithArraysList(String clientId, String bootstrapServers) {
-        Properties props = createBaseProperties(clientId);
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, Arrays.asList(bootstrapServers.split(",")));
-
-        logger.info("Creating producer with clientId: {} for cluster: {} using Arrays.asList() bootstrap format",
-                clientId, bootstrapServers);
-        return new KafkaProducer<>(props);
-    }
-
-    // Create producer with List.of() format bootstrap servers (Java 9+)
-    private static Producer<String, String> createProducerWithListOf(String clientId, String bootstrapServers) {
-        Properties props = createBaseProperties(clientId);
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, List.of(bootstrapServers.split(",")));
-
-        logger.info("Creating producer with clientId: {} for cluster: {} using List.of() bootstrap format",
-                clientId, bootstrapServers);
-        return new KafkaProducer<>(props);
-    }
-
-    // Create base properties without bootstrap servers
-    private static Properties createBaseProperties(String clientId) {
         Properties props = new Properties();
         props.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
-        props.put(ProducerConfig.LINGER_MS_CONFIG, 100); // Small value to test SUPERSTREAM_LATENCY_SENSITIVE
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 100);
         props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
-        return props;
+
+        // Create a List of servers
+        List<String> servers = new ArrayList<>();
+        for (String server : bootstrapServers.split(",")) {
+            servers.add(server.trim());
+        }
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, servers);
+
+        logger.info("Creating producer with clientId: {} for cluster: {} using List bootstrap format",
+                clientId, bootstrapServers);
+        return new KafkaProducer<>(props);
+    }
+
+    private static Producer<String, String> createProducerWithArraysList(String clientId, String bootstrapServers) {
+        Properties props = new Properties();
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
+        props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 100);
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+
+        // Using Arrays.asList() format
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, Arrays.asList(bootstrapServers));
+
+        logger.info("Creating producer with clientId: {} for cluster: {} using Arrays.asList() bootstrap format",
+                clientId, bootstrapServers);
+        return new KafkaProducer<>(props);
+    }
+
+    private static Producer<String, String> createProducerWithListOf(String clientId, String bootstrapServers) {
+        Properties props = new Properties();
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
+        props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 100);
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+
+        // Using List.of() format (Java 9+)
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, List.of(bootstrapServers));
+
+        logger.info("Creating producer with clientId: {} for cluster: {} using List.of() bootstrap format",
+                clientId, bootstrapServers);
+        return new KafkaProducer<>(props);
     }
 
     private static void sendMessages(Producer<String, String> producer, String topic, String producerName) {

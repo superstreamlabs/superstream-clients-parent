@@ -9,8 +9,31 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Properties;
 
+/**
+ * Example application that uses the Kafka Clients API to produce messages.
+ * Run with:
+ * java -javaagent:path/to/superstream-clients-1.0.0.jar
+ * -Dlogback.configurationFile=logback.xml -jar
+ * kafka-clients-example-1.0.0-jar-with-dependencies.jar
+ *
+ * Prerequisites:
+ * 1. A Kafka server with the following topics:
+ * - superstream.metadata_v1 - with a configuration message
+ * - superstream.clients - for client reports
+ * - example-topic - for test messages
+ *
+ * Environment variables:
+ * - KAFKA_BOOTSTRAP_SERVERS: The Kafka bootstrap servers (default:
+ * localhost:9092)
+ * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize for
+ * (default: example-topic)
+ * - BOOTSTRAP_FORMAT: The format to use for bootstrap servers (string, list, arrays_list, or list_of)
+ */
 public class KafkaProducerExample {
     private static final Logger logger = LoggerFactory.getLogger(KafkaProducerExample.class);
 
@@ -18,8 +41,8 @@ public class KafkaProducerExample {
     private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
 
     private static final String CLIENT_ID = "superstream-example-producer";
-    private static final String COMPRESSION_TYPE = "none"; // Changed from gzip to snappy for better visibility
-    private static final Integer BATCH_SIZE = 10; // 1MB batch size
+    private static final String COMPRESSION_TYPE = "zstd";  // Changed from gzip to snappy for better visibility
+    private static final Integer BATCH_SIZE = 1048576; // 1MB batch size
 
     private static final String TOPIC_NAME = "example-topic";
     private static final String MESSAGE_KEY = "test-key";
@@ -27,41 +50,73 @@ public class KafkaProducerExample {
     private static final String MESSAGE_VALUE = generateLargeCompressibleMessage();
 
     public static void main(String[] args) {
-        // Build the configuration map first using a mutable map
-        Map<String, Object> mutableProps = new java.util.HashMap<>();
-        mutableProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, DEFAULT_BOOTSTRAP_SERVERS);
-//         mutableProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, Arrays.asList(DEFAULT_BOOTSTRAP_SERVERS));
-//        mutableProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, List.of(DEFAULT_BOOTSTRAP_SERVERS));
-//        mutableProps.put(ProducerConfig.CLIENT_ID_CONFIG, CLIENT_ID);
-        mutableProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        mutableProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        mutableProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
-        mutableProps.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
-        mutableProps.put(ProducerConfig.LINGER_MS_CONFIG, 500);
-        mutableProps.put(ProducerConfig.CLIENT_DNS_LOOKUP_CONFIG, "use_all_dns_ips");
+        // Get bootstrap format from environment variable
+        String bootstrapFormat = System.getenv("BOOTSTRAP_FORMAT");
+        if (bootstrapFormat == null || bootstrapFormat.isEmpty()) {
+            bootstrapFormat = "string"; // Default format
+        }
 
-        // Wrap the map to make it immutable – simulates a user supplying an unmodifiable configuration object
-         Map<String, Object> props = java.util.Collections.unmodifiableMap(mutableProps);
+        // Get bootstrap servers from environment variable
+        String bootstrapServers = System.getenv("KAFKA_BOOTSTRAP_SERVERS");
+        if (bootstrapServers == null || bootstrapServers.isEmpty()) {
+            bootstrapServers = DEFAULT_BOOTSTRAP_SERVERS;
+        }
 
-        // Pass the immutable map directly to the KafkaProducer constructor
-        Producer<String, String> producer = new KafkaProducer<String, String>(mutableProps);
+        Properties props = new Properties();
+        props.put("client.id", CLIENT_ID);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
+        props.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 500); // Force batching by waiting 500ms
+
+        // Set bootstrap servers based on the specified format
+        switch (bootstrapFormat.toLowerCase()) {
+            case "list":
+                List<String> serversList = new ArrayList<>();
+                for (String server : bootstrapServers.split(",")) {
+                    serversList.add(server.trim());
+                }
+                props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, serversList);
+                logger.info("Using List format for bootstrap servers: {}", serversList);
+                break;
+
+            case "arrays_list":
+                props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, Arrays.asList(bootstrapServers));
+                logger.info("Using Arrays.asList() format for bootstrap servers: {}", Arrays.asList(bootstrapServers));
+                break;
+
+            case "list_of":
+                props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, List.of(bootstrapServers));
+                logger.info("Using List.of() format for bootstrap servers: {}", List.of(bootstrapServers));
+                break;
+
+            case "string":
+            default:
+                props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+                logger.info("Using String format for bootstrap servers: {}", bootstrapServers);
+                break;
+        }
+
         long recordCount = 50; // Number of messages to send
-        try {
+        try (Producer<String, String> producer = new KafkaProducer<>(props)) {
             while (true) {
                 // Send 50 large messages to see compression benefits
+                logger.info("Starting to send {} large messages...", recordCount);
                 for (int i = 1; i <= recordCount; i++) {
                     String messageKey = MESSAGE_KEY + "-" + i;
                     String messageValue = MESSAGE_VALUE + "-" + i + "-" + System.currentTimeMillis();
                     producer.send(new ProducerRecord<>(TOPIC_NAME, messageKey, messageValue));
                 }
 
+                logger.info("All 50 large messages queued successfully! Adding a producer.flush() to send them all at once...");
                 producer.flush();
-                Thread.sleep(10000);
+                Thread.sleep(60000);
+                logger.info("Waking up and preparing to send the next batch of messages");
+//                return;
             }
         } catch (Exception e) {
             logger.error("Error sending message", e);
-        } finally {
-            producer.close();
         }
     }
 
@@ -79,8 +134,7 @@ public class KafkaProducerExample {
 
         // Add repeating metrics data to reach ~1KB
         for (int i = 0; i < 15; i++) {
-            if (i > 0)
-                json.append(",\n");
+            if (i > 0) json.append(",\n");
             json.append("      {\n");
             json.append("        \"name\": \"metric").append(i).append("\",\n");
             json.append("        \"value\": ").append(i * 10).append(",\n");

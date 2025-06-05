@@ -19,12 +19,16 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Spring Boot application that creates multiple KafkaProducer instances to multiple clusters.
  * Uses direct KafkaProducer (kafka-clients lib) instead of Spring Kafka abstractions.
+ *
+ * Each producer uses a different bootstrap server format to test compatibility.
  *
  * This demonstrates Superstream SDK's ability to work with Spring-managed KafkaProducer beans.
  *
@@ -33,8 +37,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * Environment variables:
  * - CLUSTER1_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 1 (default: localhost:9092)
- * - CLUSTER2_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 2 (default: localhost:9093)
- * - CLUSTER3_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 3 (default: localhost:9094)
+ * - CLUSTER2_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 2 (default: localhost:9095)
+ * - CLUSTER3_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 3 (default: localhost:9096)
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize
  * - SUPERSTREAM_DISABLED: Set to true to disable Superstream optimization
  * - SUPERSTREAM_LATENCY_SENSITIVE: Set to true to preserve linger.ms values
@@ -99,45 +103,84 @@ public class SpringMultiProducerExample implements CommandLineRunner {
 
         @Bean(name = "cluster1ProducerA")
         public Producer<String, String> cluster1ProducerA() {
-            logger.info("Creating producer for cluster1 - producerA");
-            Properties props = createProducerProperties(cluster1Servers, "spring-cluster1-producer-a");
+            logger.info("Creating producer for cluster1 - producerA with String bootstrap format");
+            Properties props = createProducerPropertiesString(cluster1Servers, "spring-cluster1-producer-a");
             return new KafkaProducer<>(props);
         }
 
         @Bean(name = "cluster1ProducerB")
         public Producer<String, String> cluster1ProducerB() {
-            logger.info("Creating producer for cluster1 - producerB");
-            Properties props = createProducerProperties(cluster1Servers, "spring-cluster1-producer-b");
+            logger.info("Creating producer for cluster1 - producerB with List bootstrap format");
+            Properties props = createProducerPropertiesList(cluster1Servers, "spring-cluster1-producer-b");
             return new KafkaProducer<>(props);
         }
 
         @Bean(name = "cluster2Producer")
         public Producer<String, String> cluster2Producer() {
-            logger.info("Creating producer for cluster2");
-            Properties props = createProducerProperties(cluster2Servers, "spring-cluster2-producer");
+            logger.info("Creating producer for cluster2 with Arrays.asList() bootstrap format");
+            Properties props = createProducerPropertiesArraysList(cluster2Servers, "spring-cluster2-producer");
             return new KafkaProducer<>(props);
         }
 
         @Bean(name = "cluster3Producer")
         public Producer<String, String> cluster3Producer() {
-            logger.info("Creating producer for cluster3");
-            Properties props = createProducerProperties(cluster3Servers, "spring-cluster3-producer");
+            logger.info("Creating producer for cluster3 with List.of() bootstrap format");
+            Properties props = createProducerPropertiesListOf(cluster3Servers, "spring-cluster3-producer");
             // Override some properties for this specific producer
             props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
             props.put(ProducerConfig.BATCH_SIZE_CONFIG, 65536); // 64KB
             return new KafkaProducer<>(props);
         }
 
-        private Properties createProducerProperties(String bootstrapServers, String clientId) {
-            Properties props = new Properties();
+        // Create properties with String format bootstrap servers
+        private Properties createProducerPropertiesString(String bootstrapServers, String clientId) {
+            Properties props = createBaseProperties(clientId);
 
             // Use environment variables if available, otherwise use Spring properties
-            String servers = System.getenv(bootstrapServers.toUpperCase().replace(".", "_") + "_BOOTSTRAP_SERVERS");
-            if (servers == null) {
-                servers = bootstrapServers;
-            }
-
+            String servers = getBootstrapServers(bootstrapServers);
             props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, servers);
+
+            logger.info("Created producer properties for {} with String bootstrap format: {}", clientId, servers);
+            return props;
+        }
+
+        // Create properties with List format bootstrap servers
+        private Properties createProducerPropertiesList(String bootstrapServers, String clientId) {
+            Properties props = createBaseProperties(clientId);
+
+            String servers = getBootstrapServers(bootstrapServers);
+            List<String> serversList = Arrays.asList(servers.split(","));
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, serversList);
+
+            logger.info("Created producer properties for {} with List bootstrap format: {}", clientId, serversList);
+            return props;
+        }
+
+        // Create properties with Arrays.asList() format bootstrap servers
+        private Properties createProducerPropertiesArraysList(String bootstrapServers, String clientId) {
+            Properties props = createBaseProperties(clientId);
+
+            String servers = getBootstrapServers(bootstrapServers);
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, Arrays.asList(servers.split(",")));
+
+            logger.info("Created producer properties for {} with Arrays.asList() bootstrap format", clientId);
+            return props;
+        }
+
+        // Create properties with List.of() format bootstrap servers (Java 9+)
+        private Properties createProducerPropertiesListOf(String bootstrapServers, String clientId) {
+            Properties props = createBaseProperties(clientId);
+
+            String servers = getBootstrapServers(bootstrapServers);
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, List.of(servers.split(",")));
+
+            logger.info("Created producer properties for {} with List.of() bootstrap format", clientId);
+            return props;
+        }
+
+        // Create base properties without bootstrap servers
+        private Properties createBaseProperties(String clientId) {
+            Properties props = new Properties();
             props.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
             props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
             props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -161,12 +204,19 @@ public class SpringMultiProducerExample implements CommandLineRunner {
             props.put(ProducerConfig.RETRIES_CONFIG, 3);
             props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
 
-            logger.info("Created producer properties for {} with compression={}, batch.size={}, linger.ms={}",
-                    clientId, props.get(ProducerConfig.COMPRESSION_TYPE_CONFIG),
+            logger.info("Created base producer properties with compression={}, batch.size={}, linger.ms={}",
+                    props.get(ProducerConfig.COMPRESSION_TYPE_CONFIG),
                     props.get(ProducerConfig.BATCH_SIZE_CONFIG),
                     props.get(ProducerConfig.LINGER_MS_CONFIG));
 
             return props;
+        }
+
+        // Get bootstrap servers from environment or use default
+        private String getBootstrapServers(String defaultServers) {
+            String envKey = defaultServers.toUpperCase().replace(".", "_").replace(":", "") + "_BOOTSTRAP_SERVERS";
+            String servers = System.getenv(envKey);
+            return servers != null ? servers : defaultServers;
         }
     }
 

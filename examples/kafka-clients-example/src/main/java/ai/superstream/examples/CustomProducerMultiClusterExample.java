@@ -12,17 +12,22 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Example application that creates multiple producers using a custom class
- * that extends KafkaProducer to multiple Kafka clusters.
+ * Example application that creates multiple producers using custom classes
+ * that extend KafkaProducer to multiple Kafka clusters.
  *
  * This demonstrates Superstream SDK's ability to intercept and optimize
  * custom producer implementations that extend the original KafkaProducer class.
+ *
+ * IMPORTANT: With the fix in Superstream agent, it should only intercept the
+ * actual KafkaProducer constructor, not the custom class constructors.
  *
  * Run with:
  * java -javaagent:path/to/superstream-clients-1.0.0.jar -jar custom-producer-multi-cluster-example.jar
@@ -71,6 +76,13 @@ public class CustomProducerMultiClusterExample {
             this.producerName = producerName;
             producerLogger.info("Created MetricsAwareProducer: {} with client.id: {}",
                     producerName, properties.getProperty(ProducerConfig.CLIENT_ID_CONFIG));
+        }
+
+        public MetricsAwareProducer(Map<String, Object> configs, String producerName) {
+            super(configs);
+            this.producerName = producerName;
+            producerLogger.info("Created MetricsAwareProducer with Map config: {} with client.id: {}",
+                    producerName, configs.get(ProducerConfig.CLIENT_ID_CONFIG));
         }
 
         @Override
@@ -163,6 +175,40 @@ public class CustomProducerMultiClusterExample {
         }
     }
 
+    /**
+     * This class name simulates the exact customer class that was problematic.
+     * With the Superstream agent fix, this class should NOT be directly intercepted.
+     * Only the underlying KafkaProducer constructor should be intercepted.
+     */
+    public static class PricelineKafkaProducer<K, V> extends KafkaProducer<K, V> {
+        private final Logger producerLogger = LoggerFactory.getLogger(PricelineKafkaProducer.class);
+        private final String clientName;
+
+        public PricelineKafkaProducer(Properties properties, String clientName) {
+            super(properties);
+            this.clientName = clientName;
+            producerLogger.info("Created PricelineKafkaProducer for client: {}", clientName);
+        }
+
+        public PricelineKafkaProducer(Map<String, Object> configs, String clientName) {
+            super(configs);
+            this.clientName = clientName;
+            producerLogger.info("Created PricelineKafkaProducer with Map configs for client: {}", clientName);
+        }
+
+        @Override
+        public void flush() {
+            producerLogger.info("PricelineKafkaProducer flushing for client: {}", clientName);
+            super.flush();
+        }
+
+        @Override
+        public void close() {
+            producerLogger.info("PricelineKafkaProducer closing for client: {}", clientName);
+            super.close();
+        }
+    }
+
     public static void main(String[] args) {
         logger.info("Starting CustomProducerMultiClusterExample");
         logger.info("Environment variables:");
@@ -181,28 +227,32 @@ public class CustomProducerMultiClusterExample {
             MetricsAwareProducer<String, String> metricsProducer1 = createMetricsAwareProducer(
                     "metrics-producer-cluster1", CLUSTER1_SERVERS);
 
+            PricelineKafkaProducer<String, String> pricelineProducer = createPricelineProducer(
+                    "priceline-producer-cluster1", CLUSTER1_SERVERS);
+
             RetryableProducer<String, String> retryableProducer1 = createRetryableProducer(
                     "retryable-producer-cluster1", CLUSTER1_SERVERS, 3, 1000);
 
             // Create custom producers for Cluster 2
-            MetricsAwareProducer<String, String> metricsProducer2 = createMetricsAwareProducer(
+            MetricsAwareProducer<String, String> metricsProducer2 = createMetricsAwareProducerWithMap(
                     "metrics-producer-cluster2", CLUSTER2_SERVERS);
 
             producers.add(metricsProducer1);
+            producers.add(pricelineProducer);
             producers.add(retryableProducer1);
             producers.add(metricsProducer2);
 
             logger.info("Created {} custom producers across {} clusters", producers.size(), 2);
+            logger.info("NOTE: PricelineKafkaProducer should NOT be directly intercepted by Superstream");
 
             // Send messages and track metrics
             long startTime = System.currentTimeMillis();
             int iterations = 0;
 
             while (iterations < 10) { // Run for 10 iterations
-                // Send to cluster 1 with MetricsAwareProducer
+                // Send to cluster 1 with different custom producers
                 sendBatch(metricsProducer1, TOPIC_CLUSTER1, "metrics-cluster1", 50);
-
-                // Send to cluster 1 with RetryableProducer
+                sendBatch(pricelineProducer, TOPIC_CLUSTER1, "priceline-cluster1", 30);
                 sendBatch(retryableProducer1, TOPIC_CLUSTER1, "retryable-cluster1", 30);
 
                 // Send to cluster 2 with MetricsAwareProducer
@@ -228,7 +278,7 @@ public class CustomProducerMultiClusterExample {
             for (Producer<String, String> producer : producers) {
                 try {
                     producer.close();
-                    logger.info("Closed producer");
+                    logger.info("Closed producer: {}", producer.getClass().getSimpleName());
                 } catch (Exception e) {
                     logger.error("Error closing producer", e);
                 }
@@ -240,6 +290,29 @@ public class CustomProducerMultiClusterExample {
             String clientId, String bootstrapServers) {
         Properties props = createBaseProperties(clientId, bootstrapServers);
         return new MetricsAwareProducer<>(props, clientId);
+    }
+
+    private static MetricsAwareProducer<String, String> createMetricsAwareProducerWithMap(
+            String clientId, String bootstrapServers) {
+        Map<String, Object> configs = createBaseMap(clientId, bootstrapServers);
+        return new MetricsAwareProducer<>(configs, clientId);
+    }
+
+    private static PricelineKafkaProducer<String, String> createPricelineProducer(
+            String clientId, String bootstrapServers) {
+        // Use Map configuration for PricelineKafkaProducer to test Map constructor
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configs.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
+        configs.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        configs.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        configs.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
+        configs.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
+        configs.put(ProducerConfig.LINGER_MS_CONFIG, 300); // Different linger setting
+        configs.put(ProducerConfig.ACKS_CONFIG, "all");
+        configs.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+
+        return new PricelineKafkaProducer<>(configs, clientId);
     }
 
     private static RetryableProducer<String, String> createRetryableProducer(
@@ -264,6 +337,22 @@ public class CustomProducerMultiClusterExample {
         props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
 
         return props;
+    }
+
+    private static Map<String, Object> createBaseMap(String clientId, String bootstrapServers) {
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configs.put(ProducerConfig.CLIENT_ID_CONFIG, clientId);
+        configs.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        configs.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        configs.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, COMPRESSION_TYPE);
+        configs.put(ProducerConfig.BATCH_SIZE_CONFIG, BATCH_SIZE);
+        configs.put(ProducerConfig.LINGER_MS_CONFIG, 200);
+        configs.put(ProducerConfig.ACKS_CONFIG, "all");
+        configs.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        configs.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
+
+        return configs;
     }
 
     private static void sendBatch(Producer<String, String> producer, String topic,
