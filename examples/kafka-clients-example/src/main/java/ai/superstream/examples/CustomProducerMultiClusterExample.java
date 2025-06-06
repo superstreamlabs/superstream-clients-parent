@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * Environment variables:
  * - CLUSTER1_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 1 (default: localhost:9092)
- * - CLUSTER2_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 2 (default: localhost:9093)
+ * - CLUSTER2_BOOTSTRAP_SERVERS: Bootstrap servers for cluster 2 (default: localhost:9095)
  * - SUPERSTREAM_TOPICS_LIST: Comma-separated list of topics to optimize
  * - SUPERSTREAM_DISABLED: Set to true to disable Superstream optimization
  * - SUPERSTREAM_LATENCY_SENSITIVE: Set to true to preserve linger.ms values
