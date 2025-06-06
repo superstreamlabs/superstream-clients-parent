@@ -56,7 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @SpringBootApplication
 @EnableScheduling
-@PropertySource("classpath:application.yml")
+//@PropertySource("classpath:application.yml")
 public class SpringKafkaMultiProducerExample implements CommandLineRunner {
     private static final Logger logger = LoggerFactory.getLogger(SpringKafkaMultiProducerExample.class);
 
