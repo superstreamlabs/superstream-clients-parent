@@ -128,7 +128,7 @@ public class ClientReporter {
      * @param explicitConfig The explicitly set configuration
      * @return A map containing all configurations including defaults
      */
-    private Map<String, Object> getCompleteProducerConfig(Map<String, Object> explicitConfig) {
+    public static Map<String, Object> getCompleteProducerConfig(Map<String, Object> explicitConfig) {
         Map<String, Object> completeConfig = new HashMap<>();
 
         try {

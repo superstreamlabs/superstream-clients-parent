@@ -69,10 +69,13 @@ public class SuperstreamAgent {
         // metrics collection
         new AgentBuilder.Default()
                 .disableClassFormatChanges()
-                .type(ElementMatchers.nameEndsWith(".KafkaProducer"))
+                .type(ElementMatchers.nameEndsWith(".KafkaProducer")
+                        .and(ElementMatchers.not(ElementMatchers.nameContains("ai.superstream")))) // prevent instrumenting superstream's own KafkaProducer
                 .transform((builder, td, cl, module, pd) -> builder
                         .visit(Advice.to(KafkaProducerInterceptor.class)
-                                .on(ElementMatchers.isConstructor())))
+                                .on(ElementMatchers.isConstructor()))
+                        .visit(Advice.to(KafkaProducerCloseInterceptor.class)
+                                .on(ElementMatchers.named("close"))))
                 .installOn(instrumentation);
     }
 }

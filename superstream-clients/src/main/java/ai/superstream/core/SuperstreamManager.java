@@ -35,6 +35,15 @@ public class SuperstreamManager {
     }
 
     /**
+     * Get the configuration optimizer instance.
+     *
+     * @return The configuration optimizer instance
+     */
+    public ConfigurationOptimizer getConfigurationOptimizer() {
+        return configurationOptimizer;
+    }
+
+    /**
      * Check if optimization is already in progress for the current thread.
      *
      * @return true if optimization is in progress, false otherwise
@@ -129,6 +138,9 @@ public class SuperstreamManager {
             Map<String, Object> optimalConfiguration = configurationOptimizer.getOptimalConfiguration(
                     metadataMessage, applicationTopics);
 
+            // Capture the full original configuration map BEFORE applying optimizations
+            Map<String,Object> originalFullMap = convertPropertiesToMap(properties);
+
             // Apply the optimal configuration
             List<String> modifiedKeys = configurationOptimizer.applyOptimalConfiguration(properties, optimalConfiguration);
 
@@ -163,16 +175,9 @@ public class SuperstreamManager {
                 }
             }
 
-            // Build original filtered configuration limited to optimal keys
-            Map<String,Object> originalFiltered = new java.util.HashMap<>();
-            Map<String,Object> originalMap = convertPropertiesToMap(originalProperties);
-            for (String key : optimalConfiguration.keySet()) {
-                originalFiltered.put(key, originalMap.get(key));
-            }
-
-            // Pass configuration info via ThreadLocal to interceptor's onExit
+            // Pass configuration info via ThreadLocal to interceptor's onExit (full map for original config)
             ai.superstream.agent.KafkaProducerInterceptor.TL_CFG_STACK.get()
-                    .push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(originalFiltered, optimizedProperties));
+                    .push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(originalFullMap, optimizedProperties));
 
             // Report client information
             reportClientInformation(
