@@ -95,7 +95,7 @@ public class ClientStatsReporter {
         // Use efficient compression settings for the reporter itself
         this.producerProperties.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "zstd");
         this.producerProperties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
-        this.producerProperties.put(ProducerConfig.LINGER_MS_CONFIG, 100);
+        this.producerProperties.put(ProducerConfig.LINGER_MS_CONFIG, 1000);
 
         // Mark as registered for recordBatch logic
         this.registered.set(true);
