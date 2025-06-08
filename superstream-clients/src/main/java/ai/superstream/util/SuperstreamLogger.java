@@ -83,8 +83,8 @@ public class SuperstreamLogger {
      * Log an error message with an exception.
      */
     public void error(String message, Throwable throwable) {
-        System.err.println(formatLogMessage("ERROR", message));
-        throwable.printStackTrace(System.err);
+        String formattedMessage = formatExceptionMessage(message, throwable);
+        System.err.println(formatLogMessage("ERROR", formattedMessage));
     }
 
     /**
@@ -136,5 +136,24 @@ public class SuperstreamLogger {
             }
         }
         return result;
+    }
+
+    /**
+     * Format an exception message with class name, message and stack trace.
+     * This is a standardized way to format exception messages across the codebase.
+     * We are doing that because we saw that in some logging systems, the stack trace is not included in the error message unless it appears without a new line.
+     */
+    private String formatExceptionMessage(String message, Throwable throwable) {
+        // Convert stack trace to string
+        java.io.StringWriter sw = new java.io.StringWriter();
+        java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+        throwable.printStackTrace(pw);
+        String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
+        
+        return String.format("%s. Error: %s - %s. Stack trace: %s",
+            message,
+            throwable.getClass().getName(),
+            throwable.getMessage(),
+            stackTrace);
     }
 }

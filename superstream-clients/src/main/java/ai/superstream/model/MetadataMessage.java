@@ -12,6 +12,10 @@ public class MetadataMessage {
     private boolean active;
     private List<TopicConfiguration> topicsConfiguration;
 
+    // Optional: override for client stats reporting interval (milliseconds). Can be absent (null)
+    @JsonProperty("report_interval_ms")
+    private Long reportIntervalMs;
+
     public MetadataMessage() {
         // Default constructor for Jackson
     }
@@ -48,6 +52,17 @@ public class MetadataMessage {
     @JsonProperty("topics_configuration")
     public void setTopicsConfiguration(List<TopicConfiguration> topicsConfiguration) {
         this.topicsConfiguration = topicsConfiguration;
+    }
+
+    // Getter & setter for new report interval field
+    @JsonProperty("report_interval_ms")
+    public Long getReportIntervalMs() {
+        return reportIntervalMs;
+    }
+
+    @JsonProperty("report_interval_ms")
+    public void setReportIntervalMs(Long reportIntervalMs) {
+        this.reportIntervalMs = reportIntervalMs;
     }
 
     @Override

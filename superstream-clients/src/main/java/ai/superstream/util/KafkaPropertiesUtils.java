@@ -66,5 +66,22 @@ public class KafkaPropertiesUtils {
                 destination.put(prop, source.get(prop));
             }
         }
+
+        // Adjust JAAS config for shaded Kafka classes when used internally
+        Object jaasObj = destination.get("sasl.jaas.config");
+        if (jaasObj instanceof String) {
+            String jaas = (String) jaasObj;
+            // Build the prefix dynamically so the shade plugin does NOT relocate it
+            StringBuilder sb = new StringBuilder();
+            sb.append("org.");
+            sb.append("apache.kafka.common.security.");
+            String unshadedPrefix = sb.toString();
+            String shadedPrefix = "ai.superstream.shaded.org.apache.kafka.common.security.";
+            // Replace only if still un-shaded
+            if (jaas.contains(unshadedPrefix) && !jaas.contains(shadedPrefix)) {
+                String fixedJaas = jaas.replace(unshadedPrefix, shadedPrefix);
+                destination.put("sasl.jaas.config", fixedJaas);
+            }
+        }
     }
 } 

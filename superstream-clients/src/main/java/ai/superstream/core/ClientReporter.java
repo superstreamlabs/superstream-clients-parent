@@ -112,13 +112,7 @@ public class ClientReporter {
             logger.debug("Successfully reported client information to {}", CLIENTS_TOPIC);
             return true;
         } catch (Exception e) {
-            // Convert stack trace to string
-            java.io.StringWriter sw = new java.io.StringWriter();
-            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-            e.printStackTrace(pw);
-            String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
-            logger.error("[ERR-026] Error reporting client information. Error: {} - {}. Stack trace: {}", 
-                e.getClass().getName(), e.getMessage(), stackTrace);
+            logger.error("[ERR-026] Error reporting client information.", e);
             return false;
         }
     }
@@ -128,7 +122,7 @@ public class ClientReporter {
      * @param explicitConfig The explicitly set configuration
      * @return A map containing all configurations including defaults
      */
-    private Map<String, Object> getCompleteProducerConfig(Map<String, Object> explicitConfig) {
+    public static Map<String, Object> getCompleteProducerConfig(Map<String, Object> explicitConfig) {
         Map<String, Object> completeConfig = new HashMap<>();
 
         try {
