@@ -1404,10 +1404,19 @@ public class KafkaProducerInterceptor {
                 if (info.isActive.getAndSet(false)) {
                     logger.debug("Producer {} marked as closed; metrics collection will stop", producerId);
                     try {
-                        info.getReporter().deactivate();
-                    } catch (Exception ignored) {}
-                    // Remove from auxiliary map
+                        ClientStatsReporter reporter = info.getReporter();
+                        if (reporter != null) {
+                            // Stop the reporter and deregister it from coordinators
+                            reporter.deactivate();
+                            ai.superstream.core.ClientStatsReporter.deregisterReporter(reporter);
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Error deactivating reporter for {}: {}", producerId, e.getMessage());
+                    }
+
+                    // Remove from lookup maps to free memory
                     clientStatsReporters.remove(producerId);
+                    producerMetricsMap.remove(producerId);
                     return true;
                 } else {
                     return false; // already closed previously

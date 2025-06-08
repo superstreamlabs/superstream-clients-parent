@@ -30,7 +30,8 @@ public class ClientStatsReporter {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ClientStatsReporter.class);
     private static final String CLIENTS_TOPIC = "superstream.clients";
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final long REPORT_INTERVAL_MS = 300000; // 5 minutes
+    // Default reporting interval (5 minutes) – overridden when metadata provides a different value
+    private static final long DEFAULT_REPORT_INTERVAL_MS = 300000; // 5 minutes
     private static final String DISABLED_ENV_VAR = "SUPERSTREAM_DISABLED";
 
     // Shared scheduler for all reporters to minimize thread usage
@@ -282,16 +283,37 @@ public class ClientStatsReporter {
         private final CopyOnWriteArrayList<ClientStatsReporter> reporters = new CopyOnWriteArrayList<>();
         private final AtomicBoolean scheduled = new AtomicBoolean(false);
 
+        // Report interval for this cluster (milliseconds)
+        private final long reportIntervalMs;
+
         ClusterStatsCoordinator(String bootstrapServers, Properties baseProps) {
             this.bootstrapServers = bootstrapServers;
             this.baseProps = baseProps;
+
+            long interval = DEFAULT_REPORT_INTERVAL_MS;
+            try {
+                ai.superstream.model.MetadataMessage meta = ai.superstream.core.SuperstreamManager.getInstance()
+                        .getOrFetchMetadataMessage(bootstrapServers, baseProps);
+                if (meta != null && meta.getReportIntervalMs() != null && meta.getReportIntervalMs() > 0) {
+                    interval = meta.getReportIntervalMs();
+                }
+            } catch (Exception e) {
+                logger.warn("Could not obtain report interval from metadata: {}. Using default {} ms", e.getMessage(), DEFAULT_REPORT_INTERVAL_MS);
+            }
+
+            this.reportIntervalMs = interval;
         }
 
         void addReporter(ClientStatsReporter r) {
             reporters.add(r);
             if (scheduled.compareAndSet(false, true)) {
-                scheduler.scheduleAtFixedRate(this::run, REPORT_INTERVAL_MS, REPORT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+                scheduler.scheduleAtFixedRate(this::run, reportIntervalMs, reportIntervalMs, TimeUnit.MILLISECONDS);
             }
+        }
+
+        // Allows outer class to remove a reporter when the underlying KafkaProducer is closed
+        void removeReporter(ClientStatsReporter r) {
+            reporters.remove(r);
         }
 
         private void run() {
@@ -335,5 +357,17 @@ public class ClientStatsReporter {
      */
     public void deactivate() {
         registered.set(false);
+    }
+
+    /**
+     * Remove the given reporter instance from all cluster coordinators. Called by the
+     * agent when the application closes its <code>KafkaProducer</code> so that we
+     * do not retain references to obsolete reporter objects.
+     */
+    public static void deregisterReporter(ClientStatsReporter reporter) {
+        if (reporter == null) {
+            return;
+        }
+        coordinators.values().forEach(coord -> coord.removeReporter(reporter));
     }
 }

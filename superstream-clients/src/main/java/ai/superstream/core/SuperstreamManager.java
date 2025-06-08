@@ -214,19 +214,54 @@ public class SuperstreamManager {
      * @return The metadata message, or null if it couldn't be retrieved
      */
     public MetadataMessage getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
+        // Normalise the bootstrap servers so that different orderings of the same
+        // hosts/ports map to the *same* cache entry.  This prevents duplicate
+        // Kafka consumers and wasted network calls when the application creates
+        // multiple producers with logically-identical bootstrap lists such as
+        // "b1:9092,b2:9092" and "b2:9092,b1:9092".
+
+        String cacheKey = normalizeBootstrapServers(bootstrapServers);
+
         // Check the cache first
-        if (metadataCache.containsKey(bootstrapServers)) {
-            return metadataCache.get(bootstrapServers);
+        if (metadataCache.containsKey(cacheKey)) {
+            return metadataCache.get(cacheKey);
         }
 
-        // Fetch the metadata
+        // Fetch the metadata using the *original* string (ordering is irrelevant
+        // for the Kafka client itself)
         MetadataMessage metadataMessage = metadataConsumer.getMetadataMessage(bootstrapServers, originalProperties);
 
         if (metadataMessage != null) {
-            metadataCache.put(bootstrapServers, metadataMessage);
+            metadataCache.put(cacheKey, metadataMessage);
         }
 
         return metadataMessage;
+    }
+
+    /**
+     * Produce a canonical representation of the bootstrap servers list.
+     * <p>
+     * The input may contain duplicates, whitespace or different ordering – we
+     * split on commas, trim each entry, drop empties, sort the list
+     * lexicographically and join it back with commas.  The resulting string can
+     * safely be used as a map key that uniquely identifies a Kafka cluster.
+     */
+    private static String normalizeBootstrapServers(String servers) {
+        if (servers == null) {
+            return "";
+        }
+
+        String[] parts = servers.split(",");
+        java.util.List<String> cleaned = new java.util.ArrayList<>();
+        for (String p : parts) {
+            if (p == null) continue;
+            String trimmed = p.trim();
+            if (!trimmed.isEmpty()) {
+                cleaned.add(trimmed);
+            }
+        }
+        java.util.Collections.sort(cleaned);
+        return String.join(",", cleaned);
     }
 
     /**

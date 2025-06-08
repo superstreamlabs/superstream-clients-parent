@@ -29,10 +29,7 @@ public class MskKafkaExample {
     private static final Logger logger = LoggerFactory.getLogger(MskKafkaExample.class);
 
     // === Configuration Constants ===
-    private static final String DEFAULT_BOOTSTRAP_SERVERS =
-            "b-23-public.superstreamstgmsk.0y88si.c2.kafka.eu-central-1.amazonaws.com:9198," +
-                    "b-24-public.superstreamstgmsk.0y88si.c2.kafka.eu-central-1.amazonaws.com:9198," +
-                    "b-2-public.superstreamstgmsk.0y88si.c2.kafka.eu-central-1.amazonaws.com:9198";
+    private static final String DEFAULT_BOOTSTRAP_SERVERS = "b-1-public.superstreamstgmsk.0y88si.c2.kafka.eu-central-1.amazonaws.com:9198,b-2-public.superstreamstgmsk.0y88si.c2.kafka.eu-central-1.amazonaws.com:9198";
 
     // AWS IAM Credentials
     private static final String AWS_ACCESS_KEY_ID = "<your-access-key>";
