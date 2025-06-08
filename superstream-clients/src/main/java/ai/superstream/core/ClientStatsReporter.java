@@ -179,13 +179,7 @@ public class ClientStatsReporter {
             logger.debug("Producer {} stats sent: before={} bytes, after={} bytes",
                     clientId, totalBytesBefore, totalBytesAfter);
         } catch (Exception e) {
-            // Convert stack trace to string
-            java.io.StringWriter sw = new java.io.StringWriter();
-            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-            e.printStackTrace(pw);
-            String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
-            logger.error("[ERR-021] Failed to drain stats for client {}. Error: {} - {}. Stack trace: {}", 
-                clientId, e.getClass().getName(), e.getMessage(), stackTrace);
+            logger.error("[ERR-021] Failed to drain stats for client {}.", clientId, e);
         }
     }
 
@@ -329,13 +323,7 @@ public class ClientStatsReporter {
                 }
                 producer.flush();
             } catch (Exception e) {
-                // Convert stack trace to string
-                java.io.StringWriter sw = new java.io.StringWriter();
-                java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-                e.printStackTrace(pw);
-                String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
-                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics. Error: {} - {}. Stack trace: {}", 
-                    bootstrapServers, e.getClass().getName(), e.getMessage(), stackTrace);
+                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics.", bootstrapServers, e);
             }
         }
     }

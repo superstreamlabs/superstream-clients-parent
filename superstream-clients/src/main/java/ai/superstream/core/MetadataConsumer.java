@@ -97,22 +97,10 @@ public class MetadataConsumer {
             String json = records.iterator().next().value();
             return objectMapper.readValue(json, MetadataMessage.class);
         } catch (IOException e) {
-            // Convert stack trace to string
-            java.io.StringWriter sw = new java.io.StringWriter();
-            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-            e.printStackTrace(pw);
-            String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
-            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists. Error: {} - {}. Stack trace: {}", 
-                e.getClass().getName(), e.getMessage(), stackTrace);
+            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.", e);
             return null;
         } catch (Exception e) {
-            // Convert stack trace to string
-            java.io.StringWriter sw = new java.io.StringWriter();
-            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
-            e.printStackTrace(pw);
-            String stackTrace = sw.toString().replaceAll("\\r?\\n", " ");
-            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics. Error: {} - {}. Stack trace: {}", 
-                e.getClass().getName(), e.getMessage(), stackTrace);
+            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics.", e);
             return null;
         }
     }

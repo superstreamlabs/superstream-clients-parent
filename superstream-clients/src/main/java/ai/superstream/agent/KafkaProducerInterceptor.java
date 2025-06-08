@@ -311,7 +311,9 @@ public class KafkaProducerInterceptor {
                         }
                         reporter.updateMostImpactfulTopic(mostImpactfulTopic);
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    logger.debug("Failed to get most impactful topic: {}", e.getMessage());
+                }
 
                 // Create metrics info for this producer
                 ProducerMetricsInfo metricsInfo = new ProducerMetricsInfo(producer, reporter);
@@ -850,7 +852,9 @@ public class KafkaProducerInterceptor {
                                                                 nodeId = String.valueOf(id);
                                                                 keyString = namePart;
                                                             }
-                                                        } catch (NumberFormatException ignored) {}
+                                                        } catch (NumberFormatException e) {
+                                                            logger.debug("Failed to parse node ID: {}", e.getMessage());
+                                                        }
                                                     }
                                                 }
                                             }
@@ -860,17 +864,25 @@ public class KafkaProducerInterceptor {
                                     } else {
                                         continue; // skip non-producer groups
                                     }
-                                } catch (Exception ignored) {}
+                                } catch (Exception e) {
+                                    logger.debug("Failed to process metric name: {}", e.getMessage());
+                                }
                             } else if (mKey instanceof String) {
                                 keyString = mKey.toString();
+
+                                // producer-metrics group (per producer)
                                 if (keyString.startsWith("producer-metrics.")) {
                                     keyString = keyString.substring("producer-metrics.".length());
+
+                                // producer-topic-metrics group (per topic)
                                 } else if (keyString.startsWith("producer-topic-metrics.")) {
                                     String[] parts = keyString.split("\\.", 3);
                                     if (parts.length == 3) {
                                         topicName = parts[1];
                                         keyString = parts[2];
                                     }
+
+                                // producer-node-metrics group (per broker node)
                                 } else if (keyString.startsWith("producer-node-metrics.")) {
                                     String[] parts = keyString.split("\\.", 3);
                                     if (parts.length == 3) {
@@ -883,16 +895,22 @@ public class KafkaProducerInterceptor {
                                                     nodeId = String.valueOf(id);
                                                     keyString = parts[2];
                                                 }
-                                            } catch (NumberFormatException ignored) {}
+                                            } catch (NumberFormatException e) {
+                                                logger.debug("Failed to parse node ID: {}", e.getMessage());
+                                            }
                                         }
                                     }
+
+                                // app-info group (string values)
                                 } else if (keyString.startsWith("app-info.")) {
                                     keyString = keyString.substring("app-info.".length());
-                                } else if (!keyString.startsWith("producer-metrics") && 
-                                         !keyString.startsWith("producer-topic-metrics") &&
-                                         !keyString.startsWith("producer-node-metrics") &&
-                                         !keyString.startsWith("app-info")) {
-                                    continue; // skip non-producer groups
+
+                                // skip metrics groups that are not producer-metrics, producer-topic-metrics, producer-node-metrics, or app-info
+                                } else if (!keyString.startsWith("producer-metrics") &&
+                                           !keyString.startsWith("producer-topic-metrics") &&
+                                           !keyString.startsWith("producer-node-metrics") &&
+                                           !keyString.startsWith("app-info")) {
+                                    continue;
                                 }
                             }
                             if (keyString == null) continue;
@@ -967,11 +985,15 @@ public class KafkaProducerInterceptor {
                                             }
                                         }
                                     }
-                                } catch (Exception ignore) {}
+                                } catch (Exception e) {
+                                    logger.debug("Failed to extract topic from metric tags: {}", e.getMessage());
                                 }
                             }
                         }
-                } catch (Exception ignore) {}
+                    }
+                } catch (Exception e) {
+                    logger.debug("Failed to aggregate topics from metrics: {}", e.getMessage());
+                }
 
                 if (!newTopics.isEmpty()) {
                     reporter.addTopics(newTopics);
