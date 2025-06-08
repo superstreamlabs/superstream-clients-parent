@@ -374,7 +374,9 @@ public class KafkaProducerInterceptor {
 
             if (arg instanceof Properties) {
                 logger.debug("extractProperties: Found Properties object");
-                return (Properties) arg;
+                Properties props = (Properties) arg;
+                normalizeBootstrapServers(props);
+                return props;
             }
 
             if (arg instanceof Map) {
@@ -421,7 +423,9 @@ public class KafkaProducerInterceptor {
                             } else if (fieldValue instanceof Properties) {
                                 logger.debug("extractProperties: Found Properties in ProducerConfig field {}",
                                         fieldName);
-                                return (Properties) fieldValue;
+                                Properties props = (Properties) fieldValue;
+                                normalizeBootstrapServers(props);
+                                return props;
                             }
                         } catch (NoSuchFieldException e) {
                             // Field doesn't exist, try the next one
@@ -458,7 +462,9 @@ public class KafkaProducerInterceptor {
                             } else if (result instanceof Properties) {
                                 logger.debug("extractProperties: Found Properties in ProducerConfig method {} result",
                                         method.getName());
-                                return (Properties) result;
+                                Properties props = (Properties) result;
+                                normalizeBootstrapServers(props);
+                                return props;
                             }
                         }
                     }
@@ -499,6 +505,48 @@ public class KafkaProducerInterceptor {
 
         logger.error("[ERR-019] extractProperties: No valid configuration object found in arguments");
         return null;
+    }
+
+    /**
+     * Ensure that the bootstrap.servers property is stored as a comma-separated String even when
+     * the user supplied it as a Collection (or array) inside a java.util.Properties instance.
+     * This keeps the rest of the optimisation pipeline – which relies on getProperty(String) – working.
+     */
+    private static void normalizeBootstrapServers(Properties props) {
+        if (props == null) {
+            return;
+        }
+
+        Object bsObj = props.get("bootstrap.servers");
+        if (bsObj == null) {
+            return;
+        }
+
+        String joined = null;
+        if (bsObj instanceof java.util.Collection) {
+            java.util.Collection<?> col = (java.util.Collection<?>) bsObj;
+            StringBuilder sb = new StringBuilder();
+            for (Object o : col) {
+                if (o == null) continue;
+                if (sb.length() > 0) sb.append(',');
+                sb.append(o.toString());
+            }
+            joined = sb.toString();
+        } else if (bsObj.getClass().isArray()) {
+            int len = java.lang.reflect.Array.getLength(bsObj);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < len; i++) {
+                Object o = java.lang.reflect.Array.get(bsObj, i);
+                if (o == null) continue;
+                if (sb.length() > 0) sb.append(',');
+                sb.append(o.toString());
+            }
+            joined = sb.toString();
+        }
+
+        if (joined != null && !joined.isEmpty()) {
+            props.put("bootstrap.servers", joined);
+        }
     }
 
     /**
@@ -853,7 +901,7 @@ public class KafkaProducerInterceptor {
                                                                 keyString = namePart;
                                                             }
                                                         } catch (NumberFormatException e) {
-                                                            logger.debug("Failed to parse node ID: {}", e.getMessage());
+                                                            // ignore making us ignore the negative node IDs (represents metrics from the controller that we don't care about)
                                                         }
                                                     }
                                                 }
@@ -896,7 +944,7 @@ public class KafkaProducerInterceptor {
                                                     keyString = parts[2];
                                                 }
                                             } catch (NumberFormatException e) {
-                                                logger.debug("Failed to parse node ID: {}", e.getMessage());
+                                                // ignore making us ignore the negative node IDs (represents metrics from the controller that we don't care about)
                                             }
                                         }
                                     }
