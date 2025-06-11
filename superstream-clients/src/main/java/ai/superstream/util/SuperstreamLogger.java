@@ -66,25 +66,23 @@ public class SuperstreamLogger {
     }
 
     /**
-     * Log an error message.
-     */
-    public void error(String message) {
-        System.err.println(formatLogMessage("ERROR", message));
-    }
-
-    /**
      * Log an error message with parameters.
      */
     public void error(String message, Object... args) {
-        System.err.println(formatLogMessage("ERROR", formatArgs(message, args)));
-    }
-
-    /**
-     * Log an error message with an exception.
-     */
-    public void error(String message, Throwable throwable) {
-        String formattedMessage = formatExceptionMessage(message, throwable);
-        System.err.println(formatLogMessage("ERROR", formattedMessage));
+        if (args != null && args.length > 0 && args[args.length - 1] instanceof Throwable) {
+            // If the last argument is a Throwable, format it properly
+            Throwable throwable = (Throwable) args[args.length - 1];
+            // Remove the Throwable from args array
+            Object[] messageArgs = new Object[args.length - 1];
+            System.arraycopy(args, 0, messageArgs, 0, args.length - 1);
+            // Format the message with the remaining args
+            String formattedMessage = formatArgs(message, messageArgs);
+            // Format the exception message
+            String formattedExceptionMessage = formatExceptionMessage(formattedMessage, throwable);
+            System.err.println(formatLogMessage("ERROR", formattedExceptionMessage));
+        } else {
+            System.err.println(formatLogMessage("ERROR", formatArgs(message, args)));
+        }
     }
 
     /**

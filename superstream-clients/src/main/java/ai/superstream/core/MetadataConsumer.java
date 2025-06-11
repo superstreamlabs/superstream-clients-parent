@@ -22,7 +22,9 @@ import java.util.*;
 public class MetadataConsumer {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(MetadataConsumer.class);
     private static final String METADATA_TOPIC = "superstream.metadata_v1";
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     /**
      * Get the metadata message from the Kafka cluster.
@@ -97,10 +99,10 @@ public class MetadataConsumer {
             String json = records.iterator().next().value();
             return objectMapper.readValue(json, MetadataMessage.class);
         } catch (IOException e) {
-            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.", e);
+            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists: {}", e.getMessage(), e);
             return null;
         } catch (Exception e) {
-            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics.", e);
+            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics: {}", e.getMessage(), e);
             return null;
         }
     }

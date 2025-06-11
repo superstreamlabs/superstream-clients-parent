@@ -29,7 +29,9 @@ import java.util.concurrent.ConcurrentSkipListSet;
 public class ClientStatsReporter {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ClientStatsReporter.class);
     private static final String CLIENTS_TOPIC = "superstream.clients";
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     // Default reporting interval (5 minutes) – overridden when metadata provides a different value
     private static final long DEFAULT_REPORT_INTERVAL_MS = 300000; // 5 minutes
     private static final String DISABLED_ENV_VAR = "SUPERSTREAM_DISABLED";
@@ -180,7 +182,7 @@ public class ClientStatsReporter {
             logger.debug("Producer {} stats sent: before={} bytes, after={} bytes",
                     clientId, totalBytesBefore, totalBytesAfter);
         } catch (Exception e) {
-            logger.error("[ERR-021] Failed to drain stats for client {}.", clientId, e);
+            logger.error("[ERR-021] Failed to drain stats for client {}: {}", clientId, e.getMessage(), e);
         }
     }
 
@@ -344,8 +346,9 @@ public class ClientStatsReporter {
                     r.drainInto(producer);
                 }
                 producer.flush();
+                logger.debug("Successfully reported cluster stats to {}", CLIENTS_TOPIC);
             } catch (Exception e) {
-                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics.", bootstrapServers, e);
+                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics: {}", bootstrapServers, e.getMessage(), e);
             }
         }
     }

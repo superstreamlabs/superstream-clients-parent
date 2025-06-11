@@ -52,7 +52,7 @@ public class NetworkUtils {
             cachedIpAddress = localHost.getHostAddress();
             return cachedIpAddress;
         } catch (SocketException | UnknownHostException e) {
-            logger.error("[ERR-033] Failed to determine local IP address", e);
+            logger.error("[ERR-033] Failed to determine local IP address: {}", e.getMessage(), e);
             return "";
         }
     }
@@ -72,7 +72,7 @@ public class NetworkUtils {
             cachedHostname = localHost.getHostName();
             return cachedHostname;
         } catch (UnknownHostException e) {
-            logger.error("[ERR-091] Failed to determine local hostname", e);
+            logger.error("[ERR-091] Failed to determine local hostname: {}", e.getMessage(), e);
             return "";
         }
     }

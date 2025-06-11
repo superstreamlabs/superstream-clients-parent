@@ -25,7 +25,9 @@ import java.util.Properties;
 public class ClientReporter {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ClientReporter.class);
     private static final String CLIENTS_TOPIC = "superstream.clients";
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     private static final String CLIENT_VERSION = getClientVersion();
     private static final String LANGUAGE = "Java";
     private static final String CLIENT_TYPE = "producer"; // for now support only producers
@@ -112,7 +114,7 @@ public class ClientReporter {
             logger.debug("Successfully reported client information to {}", CLIENTS_TOPIC);
             return true;
         } catch (Exception e) {
-            logger.error("[ERR-026] Error reporting client information.", e);
+            logger.error("[ERR-026] Error reporting client information: {}", e.getMessage(), e);
             return false;
         }
     }
