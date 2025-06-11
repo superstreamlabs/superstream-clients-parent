@@ -199,7 +199,7 @@ public class SuperstreamManager {
             }
             return true;
         } catch (Exception e) {
-            logger.error("[ERR-030] Failed to optimize producer configuration", e);
+            logger.error("[ERR-030] Failed to optimize producer configuration: {}", e.getMessage(), e);
             return false;
         } finally {
             // Always clear the flag when done
@@ -323,7 +323,7 @@ public class SuperstreamManager {
                 logger.error("[ERR-032] Failed to report client information to the superstream.clients topic");
             }
         } catch (Exception e) {
-            logger.error("[ERR-031] Error reporting client information", e);
+            logger.error("[ERR-031] Error reporting client information: {}", e.getMessage(), e);
         }
     }
 }

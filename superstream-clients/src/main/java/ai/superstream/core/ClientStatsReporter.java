@@ -29,7 +29,9 @@ import java.util.concurrent.ConcurrentSkipListSet;
 public class ClientStatsReporter {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ClientStatsReporter.class);
     private static final String CLIENTS_TOPIC = "superstream.clients";
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     // Default reporting interval (5 minutes) – overridden when metadata provides a different value
     private static final long DEFAULT_REPORT_INTERVAL_MS = 300000; // 5 minutes
     private static final String DISABLED_ENV_VAR = "SUPERSTREAM_DISABLED";
@@ -95,7 +97,7 @@ public class ClientStatsReporter {
         // Use efficient compression settings for the reporter itself
         this.producerProperties.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "zstd");
         this.producerProperties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
-        this.producerProperties.put(ProducerConfig.LINGER_MS_CONFIG, 100);
+        this.producerProperties.put(ProducerConfig.LINGER_MS_CONFIG, 1000);
 
         // Mark as registered for recordBatch logic
         this.registered.set(true);
@@ -158,10 +160,8 @@ public class ClientStatsReporter {
             message.setOriginalConfiguration(originalConfig != null ? originalConfig : new java.util.HashMap<>());
             message.setOptimizedConfiguration(optimizedConfig != null ? optimizedConfig : new java.util.HashMap<>());
 
-            // Attach topics list
-            if (!topicsWritten.isEmpty()) {
-                message.setTopics(new java.util.ArrayList<>(topicsWritten));
-            }
+            // Attach topics list - always set it, empty if no topics
+            message.setTopics(new java.util.ArrayList<>(topicsWritten));
 
             // When building the ClientStatsMessage, set the most impactful topic if available
             if (mostImpactfulTopic != null) {
@@ -176,11 +176,10 @@ public class ClientStatsReporter {
             ProducerRecord<String, String> record = new ProducerRecord<>(CLIENTS_TOPIC, json);
             producer.send(record);
 
-            // Log at INFO level that stats have been sent for this producer
             logger.debug("Producer {} stats sent: before={} bytes, after={} bytes",
                     clientId, totalBytesBefore, totalBytesAfter);
         } catch (Exception e) {
-            logger.error("[ERR-021] Failed to drain stats for client {}.", clientId, e);
+            logger.error("[ERR-021] Failed to drain stats for client {}: {}", clientId, e.getMessage(), e);
         }
     }
 
@@ -306,6 +305,17 @@ public class ClientStatsReporter {
 
         void addReporter(ClientStatsReporter r) {
             reporters.add(r);
+            // Schedule immediate run for this specific reporter
+            scheduler.schedule(() -> {
+                try (Producer<String, String> producer = new KafkaProducer<>(baseProps)) {
+                    r.drainInto(producer);
+                    producer.flush();
+                } catch (Exception e) {
+                    logger.error("[ERR-046] Failed to send immediate stats for new reporter: {}", e.getMessage(), e);
+                }
+            }, 0, TimeUnit.MILLISECONDS);
+
+            // Only schedule the periodic task if not already scheduled
             if (scheduled.compareAndSet(false, true)) {
                 scheduler.scheduleAtFixedRate(this::run, reportIntervalMs, reportIntervalMs, TimeUnit.MILLISECONDS);
             }
@@ -344,8 +354,9 @@ public class ClientStatsReporter {
                     r.drainInto(producer);
                 }
                 producer.flush();
+                logger.debug("Successfully reported cluster stats to {}", CLIENTS_TOPIC);
             } catch (Exception e) {
-                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics.", bootstrapServers, e);
+                logger.error("[ERR-022] Cluster stats coordinator failed for {}, please make sure the Kafka user has read/write/describe permissions on superstream.* topics: {}", bootstrapServers, e.getMessage(), e);
             }
         }
     }

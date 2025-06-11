@@ -345,6 +345,13 @@ public class KafkaProducerInterceptor {
                     reporter.setConfigurations(completeConfig, new java.util.HashMap<>());
                 }
 
+                // Trigger immediate metrics collection for this producer
+                try {
+                    sharedCollector.collectMetricsForProducer(producerId, metricsInfo);
+                } catch (Exception e) {
+                    logger.error("[ERR-047] Failed to collect immediate metrics for new producer {}: {}", producerId, e.getMessage(), e);
+                }
+
                 logger.debug("Producer {} registered with shared metrics collector", producerId);
             }
         } catch (Exception e) {
