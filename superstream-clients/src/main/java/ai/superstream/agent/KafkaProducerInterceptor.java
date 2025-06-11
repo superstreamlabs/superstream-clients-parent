@@ -18,6 +18,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.lang.ThreadLocal;
 import java.util.Collections;
+import java.util.List;
+import java.util.Arrays;
 
 /**
  * Intercepts KafkaProducer constructor calls to optimize configurations and
@@ -206,7 +208,10 @@ public class KafkaProducerInterceptor {
                     properties.putAll(originalProperties);
                     // Push ConfigInfo with original config for stats reporting
                     java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
-                    cfgStack.push(new ConfigInfo(originalPropertiesMap, new java.util.HashMap<>()));
+                    // Check if there's an existing ConfigInfo with an error
+                    ConfigInfo existingConfig = cfgStack.isEmpty() ? null : cfgStack.peek();
+                    String error = existingConfig != null ? existingConfig.error : null;
+                    cfgStack.push(new ConfigInfo(originalPropertiesMap, new java.util.HashMap<>(), error));
                 }
             } catch (Exception e) {
                 logger.error("[ERR-053] Error during producer optimization: {}", e.getMessage(), e);
@@ -291,21 +296,21 @@ public class KafkaProducerInterceptor {
 
                 // Set the most impactful topic if possible
                 try {
-                    ai.superstream.model.MetadataMessage metadataMessage = null;
-                    java.util.List<String> topics = null;
+                    MetadataMessage metadataMessage = null;
+                    List<String> topics = null;
                     // Try to get metadata and topics if available
                     if (producerProps != null) {
                         String bootstrapServersProp = producerProps.getProperty("bootstrap.servers");
                         if (bootstrapServersProp != null) {
-                            metadataMessage = ai.superstream.core.SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServersProp, producerProps);
+                            metadataMessage = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServersProp, producerProps);
                         }
                         String topicsEnv = System.getenv("SUPERSTREAM_TOPICS_LIST");
                         if (topicsEnv != null && !topicsEnv.trim().isEmpty()) {
-                            topics = java.util.Arrays.asList(topicsEnv.split(","));
+                            topics = Arrays.asList(topicsEnv.split(","));
                         }
                     }
                     if (metadataMessage != null && topics != null) {
-                        String mostImpactfulTopic = ai.superstream.core.SuperstreamManager.getInstance().getConfigurationOptimizer().getMostImpactfulTopicName(metadataMessage, topics);
+                        String mostImpactfulTopic = SuperstreamManager.getInstance().getConfigurationOptimizer().getMostImpactfulTopicName(metadataMessage, topics);
                         if (mostImpactfulTopic == null) {
                             mostImpactfulTopic = "";
                         }
