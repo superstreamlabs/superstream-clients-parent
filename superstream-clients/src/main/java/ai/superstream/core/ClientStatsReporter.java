@@ -160,10 +160,8 @@ public class ClientStatsReporter {
             message.setOriginalConfiguration(originalConfig != null ? originalConfig : new java.util.HashMap<>());
             message.setOptimizedConfiguration(optimizedConfig != null ? optimizedConfig : new java.util.HashMap<>());
 
-            // Attach topics list
-            if (!topicsWritten.isEmpty()) {
-                message.setTopics(new java.util.ArrayList<>(topicsWritten));
-            }
+            // Attach topics list - always set it, empty if no topics
+            message.setTopics(new java.util.ArrayList<>(topicsWritten));
 
             // When building the ClientStatsMessage, set the most impactful topic if available
             if (mostImpactfulTopic != null) {
@@ -178,7 +176,6 @@ public class ClientStatsReporter {
             ProducerRecord<String, String> record = new ProducerRecord<>(CLIENTS_TOPIC, json);
             producer.send(record);
 
-            // Log at INFO level that stats have been sent for this producer
             logger.debug("Producer {} stats sent: before={} bytes, after={} bytes",
                     clientId, totalBytesBefore, totalBytesAfter);
         } catch (Exception e) {
@@ -308,6 +305,17 @@ public class ClientStatsReporter {
 
         void addReporter(ClientStatsReporter r) {
             reporters.add(r);
+            // Schedule immediate run for this specific reporter
+            scheduler.schedule(() -> {
+                try (Producer<String, String> producer = new KafkaProducer<>(baseProps)) {
+                    r.drainInto(producer);
+                    producer.flush();
+                } catch (Exception e) {
+                    logger.error("[ERR-046] Failed to send immediate stats for new reporter: {}", e.getMessage(), e);
+                }
+            }, 0, TimeUnit.MILLISECONDS);
+
+            // Only schedule the periodic task if not already scheduled
             if (scheduled.compareAndSet(false, true)) {
                 scheduler.scheduleAtFixedRate(this::run, reportIntervalMs, reportIntervalMs, TimeUnit.MILLISECONDS);
             }
