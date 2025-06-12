@@ -292,7 +292,7 @@ public class ClientStatsReporter {
             long interval = DEFAULT_REPORT_INTERVAL_MS;
             try {
                 ai.superstream.model.MetadataMessage meta = ai.superstream.core.SuperstreamManager.getInstance()
-                        .getOrFetchMetadataMessage(bootstrapServers, baseProps);
+                        .getOrFetchMetadataMessage(bootstrapServers, baseProps).getKey();
                 if (meta != null && meta.getReportIntervalMs() != null && meta.getReportIntervalMs() > 0) {
                     interval = meta.getReportIntervalMs();
                 }
