@@ -113,9 +113,15 @@ public class SuperstreamManager {
             setOptimizationInProgress(true);
 
             // Get or fetch the metadata message
-            MetadataMessage metadataMessage = getOrFetchMetadataMessage(bootstrapServers, properties);
+            java.util.AbstractMap.SimpleEntry<MetadataMessage, String> result = getOrFetchMetadataMessage(bootstrapServers, properties);
+            MetadataMessage metadataMessage = result.getKey();
+            String error = result.getValue();
+
             if (metadataMessage == null) {
-                // log is inside the getOrFetchMetadataMessage method
+                // Error is already logged in getOrFetchMetadataMessage
+                // Push ConfigInfo with error and original config for stats reporting
+                java.util.Deque<ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo> cfgStack = ai.superstream.agent.KafkaProducerInterceptor.TL_CFG_STACK.get();
+                cfgStack.push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(convertPropertiesToMap(properties), new java.util.HashMap<>(), error));
                 return false;
             }
 
@@ -215,11 +221,10 @@ public class SuperstreamManager {
      * Get the metadata message for a given Kafka cluster.
      *
      * @param bootstrapServers The Kafka bootstrap servers
-     * @return The metadata message, or null if it couldn't be retrieved
+     * @return A pair containing the metadata message (or null if error) and the error message (or null if no error)
      */
-    public MetadataMessage getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
+    public java.util.AbstractMap.SimpleEntry<MetadataMessage, String> getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
         // Normalise the bootstrap servers so that different orderings of the same
-        // hosts/ports map to the *same* cache entry.  This prevents duplicate
         // Kafka consumers and wasted network calls when the application creates
         // multiple producers with logically-identical bootstrap lists such as
         // "b1:9092,b2:9092" and "b2:9092,b1:9092".
@@ -228,18 +233,19 @@ public class SuperstreamManager {
 
         // Check the cache first
         if (metadataCache.containsKey(cacheKey)) {
-            return metadataCache.get(cacheKey);
+            return new java.util.AbstractMap.SimpleEntry<>(metadataCache.get(cacheKey), null);
         }
 
         // Fetch the metadata using the *original* string (ordering is irrelevant
         // for the Kafka client itself)
-        MetadataMessage metadataMessage = metadataConsumer.getMetadataMessage(bootstrapServers, originalProperties);
+        java.util.AbstractMap.SimpleEntry<MetadataMessage, String> result = metadataConsumer.getMetadataMessage(bootstrapServers, originalProperties);
+        MetadataMessage metadataMessage = result.getKey();
 
         if (metadataMessage != null) {
             metadataCache.put(cacheKey, metadataMessage);
         }
 
-        return metadataMessage;
+        return result;
     }
 
     /**
