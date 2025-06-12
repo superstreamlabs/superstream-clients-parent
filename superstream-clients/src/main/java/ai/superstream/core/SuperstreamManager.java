@@ -169,7 +169,26 @@ public class SuperstreamManager {
                     // If not present in current props, fall back to original value (may be null as well)
                     finalVal = originalProperties.get(key);
                 }
-                optimizedProperties.put(key, finalVal);
+                if (finalVal != null) {
+                    // Convert numeric strings to actual numbers for reporting
+                    if (finalVal instanceof String) {
+                        String strVal = ((String) finalVal).trim();
+                        try {
+                            if (!strVal.isEmpty()) {
+                                // Prefer Integer when within range, otherwise Long
+                                long longVal = Long.parseLong(strVal);
+                                if (longVal >= Integer.MIN_VALUE && longVal <= Integer.MAX_VALUE) {
+                                    finalVal = (int) longVal;
+                                } else {
+                                    finalVal = longVal;
+                                }
+                            }
+                        } catch (NumberFormatException ignored) {
+                            // leave as String if not purely numeric
+                        }
+                    }
+                    optimizedProperties.put(key, finalVal);
+                }
             }
 
             // If the application is latency-sensitive we leave linger.ms untouched. Ensure we still report its value
