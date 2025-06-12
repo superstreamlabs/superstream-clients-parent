@@ -5,6 +5,7 @@ import ai.superstream.core.SuperstreamManager;
 import ai.superstream.model.MetadataMessage;
 import ai.superstream.util.SuperstreamLogger;
 import net.bytebuddy.asm.Advice;
+import java.util.AbstractMap;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -173,7 +174,8 @@ public class KafkaProducerInterceptor {
                 // Report the error to the client
                 try {
                     // Get metadata message before reporting
-                    MetadataMessage metadataMessage = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServers, properties);
+                    AbstractMap.SimpleEntry<MetadataMessage, String> metadataResult = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServers, properties);
+                    MetadataMessage metadataMessage = metadataResult.getKey();
                     SuperstreamManager.getInstance().reportClientInformation(
                         bootstrapServers,
                         properties,
@@ -302,7 +304,8 @@ public class KafkaProducerInterceptor {
                     if (producerProps != null) {
                         String bootstrapServersProp = producerProps.getProperty("bootstrap.servers");
                         if (bootstrapServersProp != null) {
-                            metadataMessage = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServersProp, producerProps);
+                            AbstractMap.SimpleEntry<MetadataMessage, String> metadataResult = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServersProp, producerProps);
+                            metadataMessage = metadataResult.getKey();
                         }
                         String topicsEnv = System.getenv("SUPERSTREAM_TOPICS_LIST");
                         if (topicsEnv != null && !topicsEnv.trim().isEmpty()) {
