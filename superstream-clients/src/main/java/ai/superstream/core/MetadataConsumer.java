@@ -30,9 +30,9 @@ public class MetadataConsumer {
      * Get the metadata message from the Kafka cluster.
      *
      * @param bootstrapServers The Kafka bootstrap servers
-     * @return The metadata message, or null if there was an error
+     * @return A pair containing the metadata message (or null if error) and the error message (or null if no error)
      */
-    public MetadataMessage getMetadataMessage(String bootstrapServers, Properties originalClientProperties) {
+    public java.util.AbstractMap.SimpleEntry<MetadataMessage, String> getMetadataMessage(String bootstrapServers, Properties originalClientProperties) {
         Properties properties = new Properties();
 
         // Copy essential client configuration properties from the original client
@@ -67,8 +67,9 @@ public class MetadataConsumer {
             // Check if the metadata topic exists
             Set<String> topics = consumer.listTopics().keySet();
             if (!topics.contains(METADATA_TOPIC)) {
-                logger.error("[ERR-034] Superstream internal topic is missing. This topic is required for Superstream to function properly. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics.");
-                return null;
+                String errMsg = "[ERR-034] Superstream internal topic is missing. This topic is required for Superstream to function properly. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics.";
+                logger.error(errMsg);
+                return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
             }
 
             // Assign the metadata topic
@@ -80,8 +81,9 @@ public class MetadataConsumer {
             long endOffset = consumer.position(partition);
 
             if (endOffset == 0) {
-                logger.error("[ERR-035] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.");
-                return null;
+                String errMsg = "[ERR-035] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.";
+                logger.error(errMsg);
+                return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
             }
 
             // Seek to the last message
@@ -90,20 +92,23 @@ public class MetadataConsumer {
             // Poll for the message
             ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(5));
             if (records.isEmpty()) {
-                logger.error("[ERR-036] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.");
-                return null;
+                String errMsg = "[ERR-036] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.";
+                logger.error(errMsg);
+                return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
             }
             logger.debug("Successfully retrieved a message from the {} topic", METADATA_TOPIC);
 
             // Parse the message
             String json = records.iterator().next().value();
-            return objectMapper.readValue(json, MetadataMessage.class);
+            return new java.util.AbstractMap.SimpleEntry<>(objectMapper.readValue(json, MetadataMessage.class), null);
         } catch (IOException e) {
-            logger.error("[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists: {}", e.getMessage(), e);
-            return null;
+            String errMsg = "[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists: " + e.getMessage();
+            logger.error(errMsg, e);
+            return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
         } catch (Exception e) {
-            logger.error("[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics: {}", e.getMessage(), e);
-            return null;
+            String errMsg = "[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics: " + e.getMessage();
+            logger.error(errMsg, e);
+            return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
         }
     }
 }

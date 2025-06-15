@@ -5,6 +5,7 @@ import ai.superstream.core.SuperstreamManager;
 import ai.superstream.model.MetadataMessage;
 import ai.superstream.util.SuperstreamLogger;
 import net.bytebuddy.asm.Advice;
+import java.util.AbstractMap;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -18,6 +19,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.lang.ThreadLocal;
 import java.util.Collections;
+import java.util.List;
+import java.util.Arrays;
 
 /**
  * Intercepts KafkaProducer constructor calls to optimize configurations and
@@ -129,12 +132,23 @@ public class KafkaProducerInterceptor {
         boolean immutableConfigDetected = false;
         java.util.Map<String,Object> immutableOriginalMap = null;
         for (Object arg : args) {
-            if (arg instanceof java.util.Map && arg.getClass().getName().contains("UnmodifiableMap")) {
-                immutableConfigDetected = true;
+            if (arg instanceof java.util.Map) {
                 @SuppressWarnings("unchecked")
-                java.util.Map<String,Object> tmp = (java.util.Map<String,Object>) arg;
-                immutableOriginalMap = tmp;
-                break;
+                java.util.Map<String,Object> testMap = (java.util.Map<String,Object>) arg;
+                
+                // Skip empty maps as they might be immutable but don't matter for optimization
+                if (!testMap.isEmpty()) {
+                    try {
+                        String testKey = "__superstream_immutable_test_" + System.nanoTime();
+                        testMap.put(testKey, "test");
+                        testMap.remove(testKey);
+                    } catch (UnsupportedOperationException | IllegalStateException e) {
+                        // Map is immutable
+                        immutableConfigDetected = true;
+                        immutableOriginalMap = testMap;
+                        break;
+                    }
+                }
             }
         }
 
@@ -171,7 +185,8 @@ public class KafkaProducerInterceptor {
                 // Report the error to the client
                 try {
                     // Get metadata message before reporting
-                    MetadataMessage metadataMessage = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServers, properties);
+                    AbstractMap.SimpleEntry<MetadataMessage, String> metadataResult = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServers, properties);
+                    MetadataMessage metadataMessage = metadataResult.getKey();
                     SuperstreamManager.getInstance().reportClientInformation(
                         bootstrapServers,
                         properties,
@@ -206,7 +221,10 @@ public class KafkaProducerInterceptor {
                     properties.putAll(originalProperties);
                     // Push ConfigInfo with original config for stats reporting
                     java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
-                    cfgStack.push(new ConfigInfo(originalPropertiesMap, new java.util.HashMap<>()));
+                    // Check if there's an existing ConfigInfo with an error
+                    ConfigInfo existingConfig = cfgStack.isEmpty() ? null : cfgStack.peek();
+                    String error = existingConfig != null ? existingConfig.error : null;
+                    cfgStack.push(new ConfigInfo(originalPropertiesMap, new java.util.HashMap<>(), error));
                 }
             } catch (Exception e) {
                 logger.error("[ERR-053] Error during producer optimization: {}", e.getMessage(), e);
@@ -291,21 +309,22 @@ public class KafkaProducerInterceptor {
 
                 // Set the most impactful topic if possible
                 try {
-                    ai.superstream.model.MetadataMessage metadataMessage = null;
-                    java.util.List<String> topics = null;
+                    MetadataMessage metadataMessage = null;
+                    List<String> topics = null;
                     // Try to get metadata and topics if available
                     if (producerProps != null) {
                         String bootstrapServersProp = producerProps.getProperty("bootstrap.servers");
                         if (bootstrapServersProp != null) {
-                            metadataMessage = ai.superstream.core.SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServersProp, producerProps);
+                            AbstractMap.SimpleEntry<MetadataMessage, String> metadataResult = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServersProp, producerProps);
+                            metadataMessage = metadataResult.getKey();
                         }
                         String topicsEnv = System.getenv("SUPERSTREAM_TOPICS_LIST");
                         if (topicsEnv != null && !topicsEnv.trim().isEmpty()) {
-                            topics = java.util.Arrays.asList(topicsEnv.split(","));
+                            topics = Arrays.asList(topicsEnv.split(","));
                         }
                     }
                     if (metadataMessage != null && topics != null) {
-                        String mostImpactfulTopic = ai.superstream.core.SuperstreamManager.getInstance().getConfigurationOptimizer().getMostImpactfulTopicName(metadataMessage, topics);
+                        String mostImpactfulTopic = SuperstreamManager.getInstance().getConfigurationOptimizer().getMostImpactfulTopicName(metadataMessage, topics);
                         if (mostImpactfulTopic == null) {
                             mostImpactfulTopic = "";
                         }

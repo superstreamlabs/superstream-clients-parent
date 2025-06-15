@@ -20,6 +20,7 @@ Works with any Java library that depends on `kafka-clients`, including:
 - Apache Kafka Clients
 - Spring Kafka
 - Alpakka Kafka (Akka Kafka)
+- Pekko Kafka (Apache Pekko)
 - Kafka Streams
 - Kafka Connect
 - Any custom wrapper around the Kafka Java client
@@ -114,6 +115,43 @@ public class KafkaConfig {
     }
 }
 ```
+
+### Pekko/Akka Kafka Applications
+Pekko and Akka Kafka applications typically use immutable configuration maps internally, which prevents Superstream from applying optimizations. To enable Superstream optimizations with Pekko/Akka, you need to create the KafkaProducer manually with a mutable configuration.
+
+❌ **Native Pekko/Akka pattern (optimizations won't be applied)**:
+```java
+ProducerSettings<String, String> producerSettings = ProducerSettings
+    .create(system, new StringSerializer(), new StringSerializer())
+    .withBootstrapServers("localhost:9092");
+
+Source.single(ProducerMessage.single(record))
+    .via(Producer.flexiFlow(producerSettings))
+    .runWith(Sink.ignore, system);
+```
+
+✅ **Superstream-optimized pattern**:
+```java
+// Add these lines to create a mutable producer
+Map<String, Object> configProps = new HashMap<>();
+configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+
+org.apache.kafka.clients.producer.Producer<String, String> kafkaProducer = new KafkaProducer<>(configProps);
+
+ProducerSettings<String, String> producerSettings = ProducerSettings
+    .create(system, new StringSerializer(), new StringSerializer())
+    .withProducer(kafkaProducer);
+
+Source.single(ProducerMessage.single(record))
+    .via(Producer.flexiFlow(producerSettings))
+    .runWith(Sink.ignore, system);
+```
+
+This approach ensures that:
+- All Pekko/Akka Kafka features remain available
+- Superstream can optimize the producer configuration
 
 ### Why This Matters
 The Superstream library needs to modify your producer's configuration to apply optimizations based on your cluster's characteristics. This includes adjusting settings like compression, batch size, and other performance parameters. When the configuration is immutable, these optimizations cannot be applied.
