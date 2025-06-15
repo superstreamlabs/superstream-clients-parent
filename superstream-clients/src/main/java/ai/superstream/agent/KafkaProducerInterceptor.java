@@ -132,12 +132,23 @@ public class KafkaProducerInterceptor {
         boolean immutableConfigDetected = false;
         java.util.Map<String,Object> immutableOriginalMap = null;
         for (Object arg : args) {
-            if (arg instanceof java.util.Map && arg.getClass().getName().contains("UnmodifiableMap")) {
-                immutableConfigDetected = true;
+            if (arg instanceof java.util.Map) {
                 @SuppressWarnings("unchecked")
-                java.util.Map<String,Object> tmp = (java.util.Map<String,Object>) arg;
-                immutableOriginalMap = tmp;
-                break;
+                java.util.Map<String,Object> testMap = (java.util.Map<String,Object>) arg;
+                
+                // Skip empty maps as they might be immutable but don't matter for optimization
+                if (!testMap.isEmpty()) {
+                    try {
+                        String testKey = "__superstream_immutable_test_" + System.nanoTime();
+                        testMap.put(testKey, "test");
+                        testMap.remove(testKey);
+                    } catch (UnsupportedOperationException | IllegalStateException e) {
+                        // Map is immutable
+                        immutableConfigDetected = true;
+                        immutableOriginalMap = testMap;
+                        break;
+                    }
+                }
             }
         }
 
