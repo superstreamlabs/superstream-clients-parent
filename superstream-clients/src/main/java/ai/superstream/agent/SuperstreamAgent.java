@@ -6,6 +6,8 @@ import net.bytebuddy.asm.Advice;
 import net.bytebuddy.matcher.ElementMatchers;
 
 import java.lang.instrument.Instrumentation;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Java agent entry point for the Superstream library.
@@ -26,8 +28,16 @@ public class SuperstreamAgent {
             SuperstreamLogger.setDebugEnabled(true);
         }
 
-        logger.info("Superstream Agent initialized");
         install(instrumentation);
+
+        // Log all SUPERSTREAM_ environment variables
+        Map<String, String> superstreamEnvVars = new HashMap<>();
+        System.getenv().forEach((key, value) -> {
+            if (key.startsWith("SUPERSTREAM_")) {
+                superstreamEnvVars.put(key, value);
+            }
+        });
+        logger.info("Superstream Agent initialized with environment variables: {}", superstreamEnvVars);
     }
 
     /**
@@ -37,8 +47,16 @@ public class SuperstreamAgent {
      * @param instrumentation Instrumentation instance
      */
     public static void agentmain(String arguments, Instrumentation instrumentation) {
-        logger.info("Superstream Agent initialized (dynamic attach)");
         install(instrumentation);
+
+        // Log all SUPERSTREAM_ environment variables
+        Map<String, String> superstreamEnvVars = new HashMap<>();
+        System.getenv().forEach((key, value) -> {
+            if (key.startsWith("SUPERSTREAM_")) {
+                superstreamEnvVars.put(key, value);
+            }
+        });
+        logger.info("Superstream Agent initialized (dynamic attach) with environment variables: {}", superstreamEnvVars);
     }
 
     /**
@@ -47,14 +65,17 @@ public class SuperstreamAgent {
      * @param instrumentation Instrumentation instance
      */
     private static void install(Instrumentation instrumentation) {
-        // Intercept KafkaProducer constructor for both configuration optimization and metrics collection
+        // Intercept KafkaProducer constructor for both configuration optimization and
+        // metrics collection
         new AgentBuilder.Default()
                 .disableClassFormatChanges()
-                .type(ElementMatchers.nameEndsWith("KafkaProducer"))
-                .transform((builder, typeDescription, classLoader, module,
-                        protectionDomain) -> builder
-                            .visit(Advice.to(KafkaProducerInterceptor.class)
-                                .on(ElementMatchers.isConstructor())))
+                .type(ElementMatchers.nameEndsWith(".KafkaProducer")
+                        .and(ElementMatchers.not(ElementMatchers.nameContains("ai.superstream")))) // prevent instrumenting superstream's own KafkaProducer
+                .transform((builder, td, cl, module, pd) -> builder
+                        .visit(Advice.to(KafkaProducerInterceptor.class)
+                                .on(ElementMatchers.isConstructor()))
+                        .visit(Advice.to(KafkaProducerCloseInterceptor.class)
+                                .on(ElementMatchers.named("close"))))
                 .installOn(instrumentation);
 
         // Intercept KafkaConsumer constructor for metrics collection

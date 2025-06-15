@@ -1,0 +1,16 @@
+spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      client-id: spring-kafka-example
+      properties:
+        compression.type: snappy
+        batch.size: 16384
+        linger.ms: 1
+
+kafka:
+  topic: example-topic
+  bootstrap-servers: localhost:9092
+  client-id: spring-kafka-example 

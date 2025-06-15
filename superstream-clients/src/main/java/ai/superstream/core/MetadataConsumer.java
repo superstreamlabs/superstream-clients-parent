@@ -2,6 +2,7 @@ package ai.superstream.core;
 
 import ai.superstream.model.MetadataMessage;
 import ai.superstream.util.SuperstreamLogger;
+import ai.superstream.util.KafkaPropertiesUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -21,33 +22,54 @@ import java.util.*;
 public class MetadataConsumer {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(MetadataConsumer.class);
     private static final String METADATA_TOPIC = "superstream.metadata_v1";
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     /**
      * Get the metadata message from the Kafka cluster.
      *
      * @param bootstrapServers The Kafka bootstrap servers
-     * @return The metadata message, or null if there was an error
+     * @return A pair containing the metadata message (or null if error) and the error message (or null if no error)
      */
-    public MetadataMessage getMetadataMessage(String bootstrapServers, Properties originalClientProperties) {
+    public java.util.AbstractMap.SimpleEntry<MetadataMessage, String> getMetadataMessage(String bootstrapServers, Properties originalClientProperties) {
         Properties properties = new Properties();
 
-        // Copy all authentication-related and essential properties from the original client
-        copyAuthenticationProperties(originalClientProperties, properties);
+        // Copy essential client configuration properties from the original client
+        KafkaPropertiesUtils.copyClientConfigurationProperties(originalClientProperties, properties);
 
         properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        properties.put(ConsumerConfig.GROUP_ID_CONFIG, "superstream-metadata-consumer-" + UUID.randomUUID());
         properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         properties.put(ConsumerConfig.CLIENT_ID_CONFIG, KafkaProducerInterceptor.SUPERSTREAM_LIBRARY_PREFIX + "metadata-consumer");
 
+        // Log the configuration before creating consumer
+        if (SuperstreamLogger.isDebugEnabled()) {
+            StringBuilder configLog = new StringBuilder("Creating internal MetadataConsumer with configuration: ");
+            properties.forEach((key, value) -> {
+                // Mask sensitive values
+                if (key.toString().toLowerCase().contains("password") || 
+                    key.toString().toLowerCase().contains("sasl.jaas.config")) {
+                    configLog.append(key).append("=[MASKED], ");
+                } else {
+                    configLog.append(key).append("=").append(value).append(", ");
+                }
+            });
+            // Remove trailing comma and space
+            if (configLog.length() > 2) {
+                configLog.setLength(configLog.length() - 2);
+            }
+            logger.debug(configLog.toString());
+        }
+
         try (Consumer<String, String> consumer = new KafkaConsumer<>(properties)) {
             // Check if the metadata topic exists
             Set<String> topics = consumer.listTopics().keySet();
             if (!topics.contains(METADATA_TOPIC)) {
-                logger.warn("The {} topic does not exist on the Kafka cluster at {}", METADATA_TOPIC, bootstrapServers);
-                return null;
+                String errMsg = "[ERR-034] Superstream internal topic is missing. This topic is required for Superstream to function properly. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics.";
+                logger.error(errMsg);
+                return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
             }
 
             // Assign the metadata topic
@@ -59,8 +81,9 @@ public class MetadataConsumer {
             long endOffset = consumer.position(partition);
 
             if (endOffset == 0) {
-                logger.warn("The {} topic is empty", METADATA_TOPIC);
-                return null;
+                String errMsg = "[ERR-035] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.";
+                logger.error(errMsg);
+                return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
             }
 
             // Seek to the last message
@@ -69,55 +92,23 @@ public class MetadataConsumer {
             // Poll for the message
             ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(5));
             if (records.isEmpty()) {
-                logger.warn("Failed to retrieve a message from the {} topic", METADATA_TOPIC);
-                return null;
+                String errMsg = "[ERR-036] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists.";
+                logger.error(errMsg);
+                return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
             }
+            logger.debug("Successfully retrieved a message from the {} topic", METADATA_TOPIC);
 
             // Parse the message
             String json = records.iterator().next().value();
-            return objectMapper.readValue(json, MetadataMessage.class);
+            return new java.util.AbstractMap.SimpleEntry<>(objectMapper.readValue(json, MetadataMessage.class), null);
         } catch (IOException e) {
-            logger.error("Failed to parse the metadata message", e);
-            return null;
+            String errMsg = "[ERR-027] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please contact the Superstream team if the issue persists: " + e.getMessage();
+            logger.error(errMsg, e);
+            return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
         } catch (Exception e) {
-            logger.error("Failed to retrieve the metadata message", e);
-            return null;
-        }
-    }
-
-    // Helper method to copy authentication properties
-    private void copyAuthenticationProperties(Properties source, Properties destination) {
-        // Authentication-related properties
-        String[] authProps = {
-                // Security protocol
-                "security.protocol",
-
-                // SSL properties
-                "ssl.truststore.location", "ssl.truststore.password",
-                "ssl.keystore.location", "ssl.keystore.password",
-                "ssl.key.password", "ssl.endpoint.identification.algorithm",
-                "ssl.truststore.type", "ssl.keystore.type", "ssl.secure.random.implementation",
-                "ssl.enabled.protocols", "ssl.cipher.suites",
-
-                // SASL properties
-                "sasl.mechanism", "sasl.jaas.config",
-                "sasl.client.callback.handler.class", "sasl.login.callback.handler.class",
-                "sasl.login.class", "sasl.kerberos.service.name",
-                "sasl.kerberos.kinit.cmd", "sasl.kerberos.ticket.renew.window.factor",
-                "sasl.kerberos.ticket.renew.jitter", "sasl.kerberos.min.time.before.relogin",
-                "sasl.login.refresh.window.factor", "sasl.login.refresh.window.jitter",
-                "sasl.login.refresh.min.period.seconds", "sasl.login.refresh.buffer.seconds",
-
-                // Other important properties to preserve
-                "request.timeout.ms", "retry.backoff.ms", "connections.max.idle.ms",
-                "reconnect.backoff.ms", "reconnect.backoff.max.ms"
-        };
-
-        // Copy all authentication properties if they exist in the source
-        for (String prop : authProps) {
-            if (source.containsKey(prop)) {
-                destination.put(prop, source.get(prop));
-            }
+            String errMsg = "[ERR-028] Unable to retrieve optimizations data from Superstream. This is required for optimization. Please make sure the Kafka user has read/write/describe permissions on superstream.* topics: " + e.getMessage();
+            logger.error(errMsg, e);
+            return new java.util.AbstractMap.SimpleEntry<>(null, errMsg);
         }
     }
 }

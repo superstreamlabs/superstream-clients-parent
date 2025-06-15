@@ -20,6 +20,7 @@ Works with any Java library that depends on `kafka-clients`, including:
 - Apache Kafka Clients
 - Spring Kafka
 - Alpakka Kafka (Akka Kafka)
+- Pekko Kafka (Apache Pekko)
 - Kafka Streams
 - Kafka Connect
 - Any custom wrapper around the Kafka Java client
@@ -31,44 +32,146 @@ Works with any Java library that depends on `kafka-clients`, including:
 - **Intelligent optimization**: Identifies the most impactful topics to optimize
 - **Graceful fallback**: Falls back to default settings if optimization fails
 
+## Important: Producer Configuration Requirements
+
+When initializing your Kafka producers, please ensure you pass the configuration as a mutable object. The Superstream library needs to modify the producer configuration to apply optimizations. The following initialization patterns are supported:
+
+✅ **Supported (Recommended)**:
+```java
+// Using Properties (recommended)
+Properties props = new Properties();
+props.put("bootstrap.servers", "localhost:9092");
+// ... other properties ...
+KafkaProducer<String, String> producer = new KafkaProducer<>(props);
+
+// Using a regular HashMap
+Map<String, Object> config = new HashMap<>();
+config.put("bootstrap.servers", "localhost:9092");
+// ... other properties ...
+KafkaProducer<String, String> producer = new KafkaProducer<>(config);
+
+// Using Spring's @Value annotations and configuration loading
+@Configuration
+public class KafkaConfig {
+    @Value("${spring.kafka.bootstrap-servers}")
+    private String bootstrapServers;
+    // ... other properties ...
+
+    @Bean
+    public ProducerFactory<String, String> producerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        // ... other properties ...
+        return new DefaultKafkaProducerFactory<>(configProps);
+    }
+}
+```
+
+❌ **Not Supported**:
+```java
+// Using Collections.unmodifiableMap
+Map<String, Object> config = Collections.unmodifiableMap(new HashMap<>());
+KafkaProducer<String, String> producer = new KafkaProducer<>(config);
+
+// Using Map.of() (creates unmodifiable map)
+KafkaProducer<String, String> producer = new KafkaProducer<>(
+    Map.of("bootstrap.servers", "localhost:9092")
+);
+
+// Using KafkaTemplate's getProducerFactory().getConfigurationProperties()
+// which returns an unmodifiable map
+KafkaTemplate<String, String> template = new KafkaTemplate<>(producerFactory);
+KafkaProducer<String, String> producer = new KafkaProducer<>(
+    template.getProducerFactory().getConfigurationProperties()
+);
+```
+
+### Spring Applications
+Spring applications that use `@Value` annotations and Spring's configuration loading (like `application.yml` or `application.properties`) are fully supported. The Superstream library will be able to modify the configuration when it's loaded into a mutable `Map` or `Properties` object in your Spring configuration class.
+
+Example of supported Spring configuration:
+```yaml
+# application.yml
+spring:
+  kafka:
+    producer:
+      properties:
+        compression.type: snappy
+        batch.size: 16384
+        linger.ms: 1
+```
+
+```java
+@Configuration
+public class KafkaConfig {
+    @Value("${spring.kafka.producer.properties.compression.type}")
+    private String compressionType;
+    
+    @Bean
+    public ProducerFactory<String, String> producerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, compressionType);
+        return new DefaultKafkaProducerFactory<>(configProps);
+    }
+}
+```
+
+### Pekko/Akka Kafka Applications
+Pekko and Akka Kafka applications typically use immutable configuration maps internally, which prevents Superstream from applying optimizations. To enable Superstream optimizations with Pekko/Akka, you need to create the KafkaProducer manually with a mutable configuration.
+
+✅ **Superstream-optimized pattern**:
+```java
+// Add these lines to create a mutable producer
+Map<String, Object> configProps = new HashMap<>();
+configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+
+org.apache.kafka.clients.producer.Producer<String, String> kafkaProducer = new KafkaProducer<>(configProps);
+
+ProducerSettings<String, String> producerSettings = ProducerSettings
+    .create(system, new StringSerializer(), new StringSerializer())
+    .withProducer(kafkaProducer);
+
+Source.single(ProducerMessage.single(record))
+    .via(Producer.flexiFlow(producerSettings))
+    .runWith(Sink.ignore, system);
+```
+
+❌ **Native Pekko/Akka pattern (optimizations won't be applied)**:
+```java
+ProducerSettings<String, String> producerSettings = ProducerSettings
+    .create(system, new StringSerializer(), new StringSerializer())
+    .withBootstrapServers("localhost:9092");
+
+Source.single(ProducerMessage.single(record))
+    .via(Producer.flexiFlow(producerSettings))
+    .runWith(Sink.ignore, system);
+```
+
+### Why This Matters
+The Superstream library needs to modify your producer's configuration to apply optimizations based on your cluster's characteristics. This includes adjusting settings like compression, batch size, and other performance parameters. When the configuration is immutable, these optimizations cannot be applied.
+
 ## Installation
 
 *Superstream package*: https://central.sonatype.com/artifact/ai.superstream/superstream-clients-java/overview
 
-### Step 1: Add Superstream package
+### Step 1: Add Superstream Jar to your application
 
-#### Maven
+#### Download from GitHub
 
-Always use the latest version
+https://github.com/superstreamlabs/superstream-clients-java/releases
 
-```xml
-<dependency>
-    <groupId>ai.superstream</groupId>
-    <artifactId>superstream-clients</artifactId>
-    <version>1.0.0</version>
-</dependency>
-```
+#### Available also in Maven Central
 
-#### Gradle
-
-Always use the latest version
-
-```groovy
-implementation group: 'ai.superstream', name: 'superstream-clients', version: '1.0.0-beta'
-```
+https://central.sonatype.com/artifact/ai.superstream/superstream-clients
 
 ### Step 2: Run
 
 Add the Java agent to your application's startup command:
 
 ```bash
-java -javaagent:/path/to/superstream-clients-1.0.0.jar -jar your-application.jar
-```
-
-Common example: 
-
-```bash
-java -javaagent:$MAVEN_REPOSITORY$/ai/superstream/superstream-clients/1.0.0/superstream-clients-1.0.0.jar -jar your-application.jar
+java -javaagent:/path/to/superstream-clients-1.0.16.jar -jar your-application.jar
 ```
 
 ### Docker Integration
@@ -78,44 +181,20 @@ When using Superstream Clients with containerized applications, include the agen
 ```dockerfile
 FROM openjdk:11-jre
 
+WORKDIR /app
+
 # Copy your application
-COPY target/your-application.jar /app/your-application.jar
+COPY target/your-application.jar app.jar
 
 # Copy the Superstream agent
-COPY path/to/superstream-clients-1.0.0.jar /app/lib/superstream-clients-1.0.0.jar
-
-# Set environment variables
-ENV SUPERSTREAM_TOPICS_LIST=your-topics
+COPY path/to/superstream-clients-1.0.16.jar superstream-agent.jar
 
 # Run with the Java agent
-ENTRYPOINT ["java", "-javaagent:/app/lib/superstream-clients-1.0.0.jar", "-jar", "/app/your-application.jar"]
+ENTRYPOINT ["java", "-javaagent:/app/superstream-agent.jar", "-jar", "/app/app.jar"]
 ```
 
 Alternatively, you can use a multi-stage build to download the agent from Maven Central:
 
-```dockerfile
-# Build stage
-FROM maven:3.8-openjdk-11 AS build
-
-# Get the Superstream agent
-RUN mvn org.apache.maven.plugins:maven-dependency-plugin:3.2.0:get \
--DgroupId=ai.superstream \
--DartifactId=superstream-clients \
--Dversion=1.0.0
-
-RUN mvn org.apache.maven.plugins:maven-dependency-plugin:3.2.0:copy \
--Dartifact=ai.superstream:superstream-clients:1.0.0 \
--DoutputDirectory=/tmp
-
-# Final stage
-FROM openjdk:11-jre
-
-# Copy your application
-COPY target/your-application.jar /app/your-application.jar
-
-# Copy the agent from the build stage
-COPY --from=build /tmp/superstream-clients-1.0.0.jar /app/lib/superstream-clients-1.0.0.jar
-```
 
 ### Required Environment Variables
 

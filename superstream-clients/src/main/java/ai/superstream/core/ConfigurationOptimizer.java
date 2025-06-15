@@ -31,14 +31,15 @@ public class ConfigurationOptimizer {
      */
     public Map<String, Object> getOptimalConfiguration(MetadataMessage metadataMessage,
             List<String> applicationTopics) {
-        // Check if the application is latency-sensitive
         boolean isLatencySensitive = isLatencySensitive();
         if (isLatencySensitive) {
-            logger.info("Application is marked as latency-sensitive, linger.ms will not be modified");
+            logger.debug("Application is marked as latency-sensitive, linger.ms will not be modified");
         }
 
         // Get all matching topic configurations
-        List<TopicConfiguration> matchingConfigurations = metadataMessage.getTopicsConfiguration().stream()
+        List<TopicConfiguration> topics = Optional.ofNullable(metadataMessage.getTopicsConfiguration())
+                .orElse(Collections.emptyList());
+        List<TopicConfiguration> matchingConfigurations = topics.stream()
                 .filter(config -> applicationTopics.contains(config.getTopicName()))
                 .collect(Collectors.toList());
 
@@ -46,10 +47,10 @@ public class ConfigurationOptimizer {
 
         if (matchingConfigurations.isEmpty()) {
             if (applicationTopics.isEmpty()) {
-                logger.info(
+                logger.debug(
                         "SUPERSTREAM_TOPICS_LIST environment variable contains no topics. Applying default optimizations.");
             } else {
-                logger.info(
+                logger.debug(
                         "No matching topic configurations found for the application topics. Applying default optimizations.");
             }
 
@@ -61,13 +62,12 @@ public class ConfigurationOptimizer {
             // Only add linger if not latency-sensitive
             if (!isLatencySensitive) {
                 optimalConfiguration.put("linger.ms", 5000); // 5 seconds default
-                logger.info(
+                logger.debug(
                         "Default optimizations will be applied: compression.type=zstd, batch.size=16384, linger.ms=5000");
             } else {
-                logger.info(
+                logger.debug(
                         "Default optimizations will be applied: compression.type=zstd, batch.size=16384 (linger.ms unchanged)");
             }
-
             return optimalConfiguration;
         }
 
@@ -79,7 +79,7 @@ public class ConfigurationOptimizer {
         // If latency sensitive, remove linger.ms setting
         if (isLatencySensitive && optimalConfiguration.containsKey("linger.ms")) {
             optimalConfiguration.remove("linger.ms");
-            logger.info("Ignore linger.ms from optimizations due to latency-sensitive configuration");
+            logger.debug("Ignore linger.ms from optimizations due to latency-sensitive configuration");
         }
 
         return optimalConfiguration;
@@ -98,14 +98,20 @@ public class ConfigurationOptimizer {
         }
 
         List<String> modifiedKeys = new ArrayList<>();
+        boolean isLatencySensitive = isLatencySensitive();
 
         for (Map.Entry<String, Object> entry : optimalConfiguration.entrySet()) {
             String key = entry.getKey();
             Object value = entry.getValue();
 
+            if (value == null) {
+                logger.warn("Skipping null value for configuration key: {}", key);
+                continue;
+            }
+
             // Skip linger.ms optimization if the application is latency-sensitive
-            if ("linger.ms".equals(key) && isLatencySensitive()) {
-                logger.info("Skipping linger.ms optimization due to latency-sensitive configuration");
+            if ("linger.ms".equals(key) && isLatencySensitive) {
+                logger.debug("Skipping linger.ms optimization due to latency-sensitive configuration");
                 continue;
             }
 
@@ -135,7 +141,7 @@ public class ConfigurationOptimizer {
 
                     // Keep the existing value if it's larger than the recommended value
                     if (existingNumericValue > recommendedValue) {
-                        logger.info("Keeping existing {} value {} as it's greater than recommended value {}",
+                        logger.debug("Keeping existing {} value {} as it's greater than recommended value {}",
                                 key, existingNumericValue, recommendedValue);
                         continue; // Skip this key, keeping the existing value
                     }
@@ -156,9 +162,9 @@ public class ConfigurationOptimizer {
             modifiedKeys.add(key);
 
             if (originalValue == null) {
-                logger.info("Setting configuration: {}={} (was not previously set)", key, value);
+                logger.debug("Setting configuration: {}={} (was not previously set)", key, value);
             } else {
-                logger.info("Overriding configuration: {}={} (was: {})", key, value, originalValue);
+                logger.debug("Overriding configuration: {}={} (was: {})", key, value, originalValue);
             }
         }
 
@@ -166,6 +172,10 @@ public class ConfigurationOptimizer {
     }
 
     private boolean isValidConfiguration(String key, Object value) {
+        if (value == null) {
+            logger.warn("Invalid null value for configuration key: {}", key);
+            return false;
+        }
         try {
             if ("compression.type".equals(key)) {
                 String compressionType = value.toString();
@@ -186,7 +196,7 @@ public class ConfigurationOptimizer {
      *
      * @return true if the application is latency-sensitive, false otherwise
      */
-    private boolean isLatencySensitive() {
+    public boolean isLatencySensitive() {
         String latencySensitiveStr = System.getenv(LATENCY_SENSITIVE_ENV_VAR);
         if (latencySensitiveStr != null && !latencySensitiveStr.trim().isEmpty()) {
             return Boolean.parseBoolean(latencySensitiveStr.trim());
@@ -213,7 +223,9 @@ public class ConfigurationOptimizer {
      * @return The name of the most impactful topic, or null if none found
      */
     public String getMostImpactfulTopicName(MetadataMessage metadataMessage, List<String> applicationTopics) {
-        List<TopicConfiguration> matchingConfigurations = metadataMessage.getTopicsConfiguration().stream()
+        List<TopicConfiguration> topics = Optional.ofNullable(metadataMessage.getTopicsConfiguration())
+                .orElse(Collections.emptyList());
+        List<TopicConfiguration> matchingConfigurations = topics.stream()
                 .filter(config -> applicationTopics.contains(config.getTopicName()))
                 .collect(Collectors.toList());
         if (matchingConfigurations.isEmpty()) {

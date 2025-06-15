@@ -5,6 +5,8 @@ import akka.kafka.ProducerMessage;
 import akka.kafka.ProducerSettings;
 import akka.kafka.javadsl.Producer;
 import akka.stream.javadsl.Source;
+import akka.NotUsed;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
@@ -15,6 +17,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 
 /**
  * Example application that uses Akka Kafka to produce messages.
@@ -47,26 +50,17 @@ public class AkkaKafkaExample {
         try {
             // Configure the producer
             Map<String, Object> configProps = new HashMap<>();
-            configProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "none");
-            configProps.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
-            configProps.put(ProducerConfig.LINGER_MS_CONFIG, 0);
+            configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+            configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+            configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
-            logger.info("Creating Akka Kafka producer with bootstrap servers: {}", bootstrapServers);
-            logger.info("Original producer configuration:");
-            configProps.forEach((k, v) -> logger.info("  {} = {}", k, v));
+            
+            org.apache.kafka.clients.producer.Producer<String, String> kafkaProducer = new KafkaProducer<>(configProps);
 
-            // Create producer settings
-            // Create a new map with String values
-            Map<String, String> stringProps = new HashMap<>();
-            for (Map.Entry<String, Object> entry : configProps.entrySet()) {
-                stringProps.put(entry.getKey(), entry.getValue().toString());
-            }
-
-            // Use the string map with withProperties
+            // Create producer settings with the producer
             ProducerSettings<String, String> producerSettings = ProducerSettings
                     .create(system, new StringSerializer(), new StringSerializer())
-                    .withBootstrapServers(bootstrapServers)
-                    .withProperties(stringProps);
+                    .withProducer(kafkaProducer);
 
             // Send a test message
             String topic = "example-topic";
@@ -80,9 +74,15 @@ public class AkkaKafkaExample {
             // Create a source with a single message and send it to Kafka
             CompletableFuture<Void> completionFuture = Source.single(ProducerMessage.single(record))
                     .via(Producer.flexiFlow(producerSettings))
-                    .runForeach(result -> logger.info("Message sent: {}", result.toString()), system)
+                    .runForeach(result -> {
+                        if (result instanceof ProducerMessage.Results) {
+                            ProducerMessage.Results<String, String, NotUsed> res = 
+                                (ProducerMessage.Results<String, String, NotUsed>) result;
+                            logger.info("Message sent successfully");
+                        }
+                    }, system)
                     .toCompletableFuture()
-                    .thenApply(done -> null); // Convert CompletableFuture<Done> to CompletableFuture<Void>
+                    .thenApply(done -> null);
 
             // Wait for the message to be sent
             completionFuture.get(10, TimeUnit.SECONDS);

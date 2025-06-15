@@ -3,6 +3,7 @@ package ai.superstream.core;
 import ai.superstream.model.ClientMessage;
 import ai.superstream.util.NetworkUtils;
 import ai.superstream.util.SuperstreamLogger;
+import ai.superstream.util.KafkaPropertiesUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
@@ -15,12 +16,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * Reports client information to the superstream.clients topic.
@@ -28,7 +25,9 @@ import java.util.concurrent.TimeoutException;
 public class ClientReporter {
     private static final SuperstreamLogger logger = SuperstreamLogger.getLogger(ClientReporter.class);
     private static final String CLIENTS_TOPIC = "superstream.clients";
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     private static final String CLIENT_VERSION = getClientVersion();
     private static final String LANGUAGE = "Java";
     private static final String CLIENT_TYPE = "producer"; // for now support only producers
@@ -42,18 +41,20 @@ public class ClientReporter {
      * @param clientId The client ID
      * @param originalConfiguration The original configuration
      * @param optimizedConfiguration The optimized configuration
-     * @param topics The list of topics
      * @param mostImpactfulTopic The most impactful topic
+     * @param producerUuid The producer UUID to include in the report
+     * @param error The error string to include in the report
      * @return True if the message was sent successfully, false otherwise
      */
     public boolean reportClient(String bootstrapServers, Properties originalClientProperties, int superstreamClusterId, boolean active,
                                 String clientId, Map<String, Object> originalConfiguration,
                                 Map<String, Object> optimizedConfiguration,
-                                List<String> topics, String mostImpactfulTopic) {
+                                String mostImpactfulTopic, String producerUuid,
+                                String error) {
         Properties properties = new Properties();
 
-        // Copy all authentication-related and essential properties from the original client
-        copyAuthenticationProperties(originalClientProperties, properties);
+        // Copy essential client configuration properties from the original client
+        KafkaPropertiesUtils.copyClientConfigurationProperties(originalClientProperties, properties);
 
         properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -63,6 +64,25 @@ public class ClientReporter {
         properties.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "zstd");
         properties.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);  // 16KB batch size
         properties.put(ProducerConfig.LINGER_MS_CONFIG, 1000);
+
+        // Log the configuration before creating producer
+        if (SuperstreamLogger.isDebugEnabled()) {
+            StringBuilder configLog = new StringBuilder("Creating internal ClientReporter producer with configuration: ");
+            properties.forEach((key, value) -> {
+                // Mask sensitive values
+                if (key.toString().toLowerCase().contains("password") || 
+                    key.toString().toLowerCase().contains("sasl.jaas.config")) {
+                    configLog.append(key).append("=[MASKED], ");
+                } else {
+                    configLog.append(key).append("=").append(value).append(", ");
+                }
+            });
+            // Remove trailing comma and space
+            if (configLog.length() > 2) {
+                configLog.setLength(configLog.length() - 2);
+            }
+            logger.debug(configLog.toString());
+        }
 
         try (Producer<String, String> producer = new KafkaProducer<>(properties)) {
             // Create the client message
@@ -76,8 +96,10 @@ public class ClientReporter {
                     CLIENT_TYPE,
                     getCompleteProducerConfig(originalConfiguration),
                     optimizedConfiguration,
-                    topics,
-                    mostImpactfulTopic
+                    mostImpactfulTopic,
+                    NetworkUtils.getHostname(),
+                    producerUuid,
+                    error
             );
 
             // Convert the message to JSON
@@ -85,22 +107,14 @@ public class ClientReporter {
 
             // Send the message
             ProducerRecord<String, String> record = new ProducerRecord<>(CLIENTS_TOPIC, json);
-            producer.send(record).get(5, TimeUnit.SECONDS);
+            producer.send(record);
+            producer.flush();
+            producer.close();
 
-            logger.info("Successfully reported client information to {}", CLIENTS_TOPIC);
+            logger.debug("Successfully reported client information to {}", CLIENTS_TOPIC);
             return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.error("Interrupted while reporting client information", e);
-            return false;
-        } catch (ExecutionException e) {
-            logger.error("Failed to report client information", e);
-            return false;
-        } catch (TimeoutException e) {
-            logger.error("Timed out while reporting client information", e);
-            return false;
         } catch (Exception e) {
-            logger.error("Error reporting client information", e);
+            logger.error("[ERR-026] Error reporting client information: {}", e.getMessage(), e);
             return false;
         }
     }
@@ -110,7 +124,7 @@ public class ClientReporter {
      * @param explicitConfig The explicitly set configuration
      * @return A map containing all configurations including defaults
      */
-    private Map<String, Object> getCompleteProducerConfig(Map<String, Object> explicitConfig) {
+    public static Map<String, Object> getCompleteProducerConfig(Map<String, Object> explicitConfig) {
         Map<String, Object> completeConfig = new HashMap<>();
 
         try {
@@ -164,42 +178,6 @@ public class ClientReporter {
         }
 
         return completeConfig;
-    }
-
-    // Helper method to copy authentication properties
-    public static void copyAuthenticationProperties(Properties source, Properties destination) {
-        // Authentication-related properties
-        String[] authProps = {
-                // Security protocol
-                "security.protocol",
-
-                // SSL properties
-                "ssl.truststore.location", "ssl.truststore.password",
-                "ssl.keystore.location", "ssl.keystore.password",
-                "ssl.key.password", "ssl.endpoint.identification.algorithm",
-                "ssl.truststore.type", "ssl.keystore.type", "ssl.secure.random.implementation",
-                "ssl.enabled.protocols", "ssl.cipher.suites",
-
-                // SASL properties
-                "sasl.mechanism", "sasl.jaas.config",
-                "sasl.client.callback.handler.class", "sasl.login.callback.handler.class",
-                "sasl.login.class", "sasl.kerberos.service.name",
-                "sasl.kerberos.kinit.cmd", "sasl.kerberos.ticket.renew.window.factor",
-                "sasl.kerberos.ticket.renew.jitter", "sasl.kerberos.min.time.before.relogin",
-                "sasl.login.refresh.window.factor", "sasl.login.refresh.window.jitter",
-                "sasl.login.refresh.min.period.seconds", "sasl.login.refresh.buffer.seconds",
-
-                // Other important properties to preserve
-                "request.timeout.ms", "retry.backoff.ms", "connections.max.idle.ms",
-                "reconnect.backoff.ms", "reconnect.backoff.max.ms"
-        };
-
-        // Copy all authentication properties if they exist in the source
-        for (String prop : authProps) {
-            if (source.containsKey(prop)) {
-                destination.put(prop, source.get(prop));
-            }
-        }
     }
 
     /**

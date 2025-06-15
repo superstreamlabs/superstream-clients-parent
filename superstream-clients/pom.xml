@@ -6,7 +6,7 @@
 
     <groupId>ai.superstream</groupId>
     <artifactId>superstream-clients</artifactId>
-    <version>1.0.12</version>
+    <version>1.0.204</version>
     <packaging>jar</packaging>
 
     <name>Superstream Kafka Client Optimizer</name>
@@ -147,6 +147,13 @@
                                 <relocation>
                                     <pattern>org.apache.kafka</pattern>
                                     <shadedPattern>ai.superstream.shaded.org.apache.kafka</shadedPattern>
+                                    <excludes>
+                                        <!-- Only exclude the minimal set of interfaces needed for auth -->
+                                        <exclude>org.apache.kafka.common.security.auth.AuthenticateCallbackHandler</exclude>
+                                        <exclude>org.apache.kafka.common.security.auth.SaslExtensionsCallback</exclude>
+                                        <exclude>org.apache.kafka.common.security.auth.SaslExtensions</exclude>
+                                        <exclude>org.apache.kafka.common.security.auth.SecurityProtocol</exclude>
+                                    </excludes>
                                 </relocation>
                                 <!-- Complete SLF4J shading -->
                                 <relocation>

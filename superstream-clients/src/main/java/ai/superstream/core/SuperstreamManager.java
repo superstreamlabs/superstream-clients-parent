@@ -30,8 +30,17 @@ public class SuperstreamManager {
         this.disabled = Boolean.parseBoolean(System.getenv(DISABLED_ENV_VAR));
 
         if (disabled) {
-            logger.info("Superstream optimization is disabled via environment variable");
+            logger.debug("Superstream optimization is disabled via environment variable");
         }
+    }
+
+    /**
+     * Get the configuration optimizer instance.
+     *
+     * @return The configuration optimizer instance
+     */
+    public ConfigurationOptimizer getConfigurationOptimizer() {
+        return configurationOptimizer;
     }
 
     /**
@@ -104,9 +113,15 @@ public class SuperstreamManager {
             setOptimizationInProgress(true);
 
             // Get or fetch the metadata message
-            MetadataMessage metadataMessage = getOrFetchMetadataMessage(bootstrapServers, properties);
+            java.util.AbstractMap.SimpleEntry<MetadataMessage, String> result = getOrFetchMetadataMessage(bootstrapServers, properties);
+            MetadataMessage metadataMessage = result.getKey();
+            String error = result.getValue();
+
             if (metadataMessage == null) {
-                logger.warn("No metadata message available for {}, skipping optimization", bootstrapServers);
+                // Error is already logged in getOrFetchMetadataMessage
+                // Push ConfigInfo with error and original config for stats reporting
+                java.util.Deque<ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo> cfgStack = ai.superstream.agent.KafkaProducerInterceptor.TL_CFG_STACK.get();
+                cfgStack.push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(convertPropertiesToMap(properties), new java.util.HashMap<>(), error));
                 return false;
             }
 
@@ -116,8 +131,13 @@ public class SuperstreamManager {
 
             // Check if optimization is active
             if (!metadataMessage.isActive()) {
-                logger.info("Superstream optimization is not active for this kafka cluster, please head to the Superstream console and activate it.");
-                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap());
+                String errMsg = "[ERR-054] Superstream optimization is not active for this kafka cluster, please head to the Superstream console and activate it.";
+                logger.error(errMsg);
+                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap(), errMsg);
+                
+                // Push ConfigInfo with error and original config for stats reporting
+                java.util.Deque<ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo> cfgStack = ai.superstream.agent.KafkaProducerInterceptor.TL_CFG_STACK.get();
+                cfgStack.push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(convertPropertiesToMap(properties), new java.util.HashMap<>(), errMsg));
                 return false;
             }
 
@@ -128,12 +148,15 @@ public class SuperstreamManager {
             Map<String, Object> optimalConfiguration = configurationOptimizer.getOptimalConfiguration(
                     metadataMessage, applicationTopics);
 
+            // Capture the full original configuration map BEFORE applying optimizations
+            Map<String,Object> originalFullMap = convertPropertiesToMap(properties);
+
             // Apply the optimal configuration
             List<String> modifiedKeys = configurationOptimizer.applyOptimalConfiguration(properties, optimalConfiguration);
 
             if (modifiedKeys.isEmpty()) {
-                logger.info("No configuration parameters were modified");
-                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap());
+                logger.debug("No configuration parameters were modified");
+                reportClientInformation(bootstrapServers, properties, metadataMessage, clientId, originalProperties, Collections.emptyMap(), "");
                 return false;
             }
 
@@ -146,19 +169,44 @@ public class SuperstreamManager {
                     // If not present in current props, fall back to original value (may be null as well)
                     finalVal = originalProperties.get(key);
                 }
-                optimizedProperties.put(key, finalVal);
+                if (finalVal != null) {
+                    // Convert numeric strings to actual numbers for reporting
+                    if (finalVal instanceof String) {
+                        String strVal = ((String) finalVal).trim();
+                        try {
+                            if (!strVal.isEmpty()) {
+                                // Prefer Integer when within range, otherwise Long
+                                long longVal = Long.parseLong(strVal);
+                                if (longVal >= Integer.MIN_VALUE && longVal <= Integer.MAX_VALUE) {
+                                    finalVal = (int) longVal;
+                                } else {
+                                    finalVal = longVal;
+                                }
+                            }
+                        } catch (NumberFormatException ignored) {
+                            // leave as String if not purely numeric
+                        }
+                    }
+                    optimizedProperties.put(key, finalVal);
+                }
             }
 
-            // Build original filtered configuration limited to optimal keys
-            Map<String,Object> originalFiltered = new java.util.HashMap<>();
-            Map<String,Object> originalMap = convertPropertiesToMap(originalProperties);
-            for (String key : optimalConfiguration.keySet()) {
-                originalFiltered.put(key, originalMap.get(key));
+            // If the application is latency-sensitive we leave linger.ms untouched. Ensure we still report its value
+            // so that the clients topic contains the complete set actually in effect.
+            final String LINGER_MS_KEY = "linger.ms";
+            if (!optimizedProperties.containsKey(LINGER_MS_KEY)) {
+                Object lingerVal = properties.get(LINGER_MS_KEY);
+                if (lingerVal == null) {
+                    lingerVal = originalProperties.get(LINGER_MS_KEY);
+                }
+                if (lingerVal != null) {
+                    optimizedProperties.put(LINGER_MS_KEY, lingerVal);
+                }
             }
 
-            // Pass configuration info via ThreadLocal to interceptor's onExit
+            // Pass configuration info via ThreadLocal to interceptor's onExit (full map for original config)
             ai.superstream.agent.KafkaProducerInterceptor.TL_CFG_STACK.get()
-                    .push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(originalFiltered, optimizedProperties));
+                    .push(new ai.superstream.agent.KafkaProducerInterceptor.ConfigInfo(originalFullMap, optimizedProperties));
 
             // Report client information
             reportClientInformation(
@@ -167,13 +215,20 @@ public class SuperstreamManager {
                     metadataMessage,
                     clientId,
                     originalProperties,
-                    optimizedProperties
+                    optimizedProperties,
+                    ""
             );
 
-            logger.info("Successfully optimized producer configuration for {}", clientId);
+            // Log optimization success with linger.ms status based on environment variable
+            boolean isLatencySensitive = configurationOptimizer.isLatencySensitive();
+            if (isLatencySensitive) {
+                logger.info("Successfully optimized producer configuration for {} (linger.ms left unchanged due to latency sensitivity)", clientId);
+            } else {
+                logger.info("Successfully optimized producer configuration for {}", clientId);
+            }
             return true;
         } catch (Exception e) {
-            logger.error("Failed to optimize producer configuration", e);
+            logger.error("[ERR-030] Failed to optimize producer configuration: {}", e.getMessage(), e);
             return false;
         } finally {
             // Always clear the flag when done
@@ -185,22 +240,57 @@ public class SuperstreamManager {
      * Get the metadata message for a given Kafka cluster.
      *
      * @param bootstrapServers The Kafka bootstrap servers
-     * @return The metadata message, or null if it couldn't be retrieved
+     * @return A pair containing the metadata message (or null if error) and the error message (or null if no error)
      */
-    private MetadataMessage getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
+    public java.util.AbstractMap.SimpleEntry<MetadataMessage, String> getOrFetchMetadataMessage(String bootstrapServers, Properties originalProperties) {
+        // Normalise the bootstrap servers so that different orderings of the same
+        // Kafka consumers and wasted network calls when the application creates
+        // multiple producers with logically-identical bootstrap lists such as
+        // "b1:9092,b2:9092" and "b2:9092,b1:9092".
+
+        String cacheKey = normalizeBootstrapServers(bootstrapServers);
+
         // Check the cache first
-        if (metadataCache.containsKey(bootstrapServers)) {
-            return metadataCache.get(bootstrapServers);
+        if (metadataCache.containsKey(cacheKey)) {
+            return new java.util.AbstractMap.SimpleEntry<>(metadataCache.get(cacheKey), null);
         }
 
-        // Fetch the metadata
-        MetadataMessage metadataMessage = metadataConsumer.getMetadataMessage(bootstrapServers, originalProperties);
+        // Fetch the metadata using the *original* string (ordering is irrelevant
+        // for the Kafka client itself)
+        java.util.AbstractMap.SimpleEntry<MetadataMessage, String> result = metadataConsumer.getMetadataMessage(bootstrapServers, originalProperties);
+        MetadataMessage metadataMessage = result.getKey();
 
         if (metadataMessage != null) {
-            metadataCache.put(bootstrapServers, metadataMessage);
+            metadataCache.put(cacheKey, metadataMessage);
         }
 
-        return metadataMessage;
+        return result;
+    }
+
+    /**
+     * Produce a canonical representation of the bootstrap servers list.
+     * <p>
+     * The input may contain duplicates, whitespace or different ordering – we
+     * split on commas, trim each entry, drop empties, sort the list
+     * lexicographically and join it back with commas.  The resulting string can
+     * safely be used as a map key that uniquely identifies a Kafka cluster.
+     */
+    private static String normalizeBootstrapServers(String servers) {
+        if (servers == null) {
+            return "";
+        }
+
+        String[] parts = servers.split(",");
+        java.util.List<String> cleaned = new java.util.ArrayList<>();
+        for (String p : parts) {
+            if (p == null) continue;
+            String trimmed = p.trim();
+            if (!trimmed.isEmpty()) {
+                cleaned.add(trimmed);
+            }
+        }
+        java.util.Collections.sort(cleaned);
+        return String.join(",", cleaned);
     }
 
     /**
@@ -229,30 +319,40 @@ public class SuperstreamManager {
      * @param originalConfiguration The original configuration
      * @param optimizedConfiguration The optimized configuration
      */
-    private void reportClientInformation(String bootstrapServers, Properties originalProperties, MetadataMessage metadataMessage,
+    public void reportClientInformation(String bootstrapServers, Properties originalProperties, MetadataMessage metadataMessage,
                                          String clientId, Properties originalConfiguration,
-                                         Map<String, Object> optimizedConfiguration) {
+                                         Map<String, Object> optimizedConfiguration,
+                                         String error) {
         try {
             Map<String, Object> originalConfiguration1 = convertPropertiesToMap(originalConfiguration);
             List<String> topics = getApplicationTopics();
             String mostImpactfulTopic = configurationOptimizer.getMostImpactfulTopicName(metadataMessage, topics);
+
+            // Retrieve the producer UUID from ThreadLocal stack (aligned with TL_PROPS_STACK)
+            String producerUuid = null;
+            java.util.Deque<String> uuidStack = ai.superstream.agent.KafkaProducerInterceptor.TL_UUID_STACK.get();
+            if (!uuidStack.isEmpty()) {
+                producerUuid = uuidStack.peek();
+            }
+
             boolean success = clientReporter.reportClient(
                     bootstrapServers,
                     originalProperties,
-                    metadataMessage.getSuperstreamClusterId(),
-                    metadataMessage.isActive(),
+                    metadataMessage != null ? metadataMessage.getSuperstreamClusterId() : null,
+                    metadataMessage != null ? metadataMessage.isActive() : false,
                     clientId,
                     originalConfiguration1,
                     optimizedConfiguration,
-                    topics,
-                    mostImpactfulTopic
+                    mostImpactfulTopic,
+                    producerUuid,
+                    error
             );
 
             if (!success) {
-                logger.warn("Failed to report client information to the superstream.clients topic");
+                logger.error("[ERR-032] Failed to report client information to the superstream.clients topic");
             }
         } catch (Exception e) {
-            logger.error("Error reporting client information", e);
+            logger.error("[ERR-031] Error reporting client information: {}", e.getMessage(), e);
         }
     }
 }

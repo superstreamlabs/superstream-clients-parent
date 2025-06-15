@@ -2,14 +2,15 @@ package ai.superstream.agent;
 
 import ai.superstream.core.ClientStatsReporter;
 import ai.superstream.core.SuperstreamManager;
+import ai.superstream.model.MetadataMessage;
 import ai.superstream.util.SuperstreamLogger;
 import net.bytebuddy.asm.Advice;
+import java.util.AbstractMap;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Properties;
 import java.util.Map;
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Executors;
@@ -17,6 +18,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.lang.ThreadLocal;
+import java.util.Collections;
+import java.util.List;
+import java.util.Arrays;
 
 /**
  * Intercepts KafkaProducer constructor calls to optimize configurations and
@@ -48,6 +52,13 @@ public class KafkaProducerInterceptor {
     public static final ThreadLocal<java.util.Deque<Properties>> TL_PROPS_STACK =
             ThreadLocal.withInitial(java.util.ArrayDeque::new);
 
+    // ThreadLocal stack to hold the producer UUIDs generated in onEnter so that the same
+    // value can be reused later in onExit (for stats reporting) and by SuperstreamManager
+    // when it reports the client information. The stack is aligned with the TL_PROPS_STACK
+    // (push in onEnter, pop in onExit).
+    public static final ThreadLocal<java.util.Deque<String>> TL_UUID_STACK =
+            ThreadLocal.withInitial(java.util.ArrayDeque::new);
+
     // ThreadLocal stack to pass original/optimized configuration maps from optimization phase to reporter creation.
     public static final ThreadLocal<java.util.Deque<ConfigInfo>> TL_CFG_STACK =
             ThreadLocal.withInitial(java.util.ArrayDeque::new);
@@ -57,12 +68,11 @@ public class KafkaProducerInterceptor {
         if (!DISABLED) {
             try {
                 sharedCollector.start();
-                logger.info("Superstream metrics collector initialized and started successfully");
             } catch (Exception e) {
-                logger.error("Failed to start metrics collector: " + e.getMessage(), e);
+                logger.error("[ERR-001] Failed to start metrics collector: {}", e.getMessage(), e);
             }
         } else {
-            logger.info("Superstream metrics collection is disabled via SUPERSTREAM_DISABLED environment variable");
+            logger.warn("Superstream is disabled via SUPERSTREAM_DISABLED environment variable");
         }
     }
 
@@ -91,29 +101,65 @@ public class KafkaProducerInterceptor {
         // Check if this is a direct call from application code or an internal
         // delegation
         if (!isInitialProducerCreation()) {
-            logger.debug("Skipping internal constructor delegation");
             return;
         }
 
         // Extract Properties or Map from the arguments and push onto the stack
         Properties properties = extractProperties(args);
         if (properties != null) {
+            // Replace the original Map argument with our Properties instance so that
+            // the KafkaProducer constructor reads the optimised values.
+            for (int i = 0; i < args.length; i++) {
+                Object a = args[i];
+                if (a instanceof java.util.Map && !(a instanceof java.util.Properties)) {
+                    args[i] = properties;
+                    break;
+                }
+            }
+
             TL_PROPS_STACK.get().push(properties);
+
+            // Generate a UUID for this upcoming producer instance and push onto UUID stack
+            String producerUuid = java.util.UUID.randomUUID().toString();
+            TL_UUID_STACK.get().push(producerUuid);
+        }  else {
+          logger.error("[ERR-002] Could not extract properties from producer arguments");
+          // here we can not report the error to the clients topic as we were not able to extract the properties
+          return;
         }
 
-        // Make a copy of the original properties in case we need to restore them
-        Properties originalProperties = new Properties();
-        originalProperties.putAll(properties);
+        // Detect immutable Map argument (e.g., Collections.unmodifiableMap) so we can skip optimisation early
+        boolean immutableConfigDetected = false;
+        java.util.Map<String,Object> immutableOriginalMap = null;
+        for (Object arg : args) {
+            if (arg instanceof java.util.Map) {
+                @SuppressWarnings("unchecked")
+                java.util.Map<String,Object> testMap = (java.util.Map<String,Object>) arg;
+                
+                // Skip empty maps as they might be immutable but don't matter for optimization
+                if (!testMap.isEmpty()) {
+                    try {
+                        String testKey = "__superstream_immutable_test_" + System.nanoTime();
+                        testMap.put(testKey, "test");
+                        testMap.remove(testKey);
+                    } catch (UnsupportedOperationException | IllegalStateException e) {
+                        // Map is immutable
+                        immutableConfigDetected = true;
+                        immutableOriginalMap = testMap;
+                        break;
+                    }
+                }
+            }
+        }
 
         try {
             // Skip if we're already in the process of optimizing
             if (SuperstreamManager.isOptimizationInProgress()) {
-                logger.debug("Skipping interception as optimization is already in progress");
                 return;
             }
 
             if (properties == null || properties.isEmpty()) {
-                logger.error("Could not extract properties from properties");
+                logger.error("[ERR-003] Could not extract properties from properties");
                 return;
             }
 
@@ -124,27 +170,72 @@ public class KafkaProducerInterceptor {
                 return;
             }
 
-            logger.info("Intercepted KafkaProducer constructor");
-
             // Extract bootstrap servers
             String bootstrapServers = properties.getProperty("bootstrap.servers");
             if (bootstrapServers == null || bootstrapServers.trim().isEmpty()) {
-                logger.warn("bootstrap.servers is not set, cannot optimize");
+                logger.error("[ERR-004] bootstrap.servers is not set, cannot optimize");
                 return;
             }
 
-            // Optimize the producer
-            boolean success = SuperstreamManager.getInstance().optimizeProducer(bootstrapServers, clientId, properties);
-            if (!success) {
-                // Restore original properties if optimization failed
-                properties.clear();
+            if (immutableConfigDetected && immutableOriginalMap != null) {
+                String errMsg = String.format("[ERR-010] Cannot optimize KafkaProducer configuration: received an unmodifiable Map (%s). Please pass a mutable java.util.Properties or java.util.Map instead.",
+                        immutableOriginalMap.getClass().getName());
+                logger.error(errMsg);
+
+                // Report the error to the client
+                try {
+                    // Get metadata message before reporting
+                    AbstractMap.SimpleEntry<MetadataMessage, String> metadataResult = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServers, properties);
+                    MetadataMessage metadataMessage = metadataResult.getKey();
+                    SuperstreamManager.getInstance().reportClientInformation(
+                        bootstrapServers,
+                        properties,
+                        metadataMessage,
+                        clientId,
+                        properties,
+                        Collections.emptyMap(), // no optimized configuration since we can't optimize
+                        errMsg
+                    );
+                } catch (Exception e) {
+                    logger.error("[ERR-058] Failed to report client error: {}", e.getMessage(), e);
+                }
+
+                // Push ConfigInfo with error and original config for stats reporting
+                java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
+                cfgStack.push(new ConfigInfo(propertiesToMap(properties), new java.util.HashMap<>(), errMsg));
+
+                // Do NOT attempt optimisation
+                return;
+            }
+
+            // Store original properties to restore in case of failure
+            java.util.Map<String, Object> originalPropertiesMap = propertiesToMap(properties);
+            Properties originalProperties = new Properties();
+            originalProperties.putAll(properties);
+
+            try {
+                // Optimize the producer
+                boolean optimized = SuperstreamManager.getInstance().optimizeProducer(bootstrapServers, clientId, properties);
+                if (!optimized) {
+                    // Restore original properties if optimization was not successful
+                    properties.putAll(originalProperties);
+                    // Push ConfigInfo with original config for stats reporting
+                    java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
+                    // Check if there's an existing ConfigInfo with an error
+                    ConfigInfo existingConfig = cfgStack.isEmpty() ? null : cfgStack.peek();
+                    String error = existingConfig != null ? existingConfig.error : null;
+                    cfgStack.push(new ConfigInfo(originalPropertiesMap, new java.util.HashMap<>(), error));
+                }
+            } catch (Exception e) {
+                logger.error("[ERR-053] Error during producer optimization: {}", e.getMessage(), e);
+                // Restore original properties in case of failure
                 properties.putAll(originalProperties);
+                // Push ConfigInfo with original config for stats reporting
+                java.util.Deque<ConfigInfo> cfgStack = TL_CFG_STACK.get();
+                cfgStack.push(new ConfigInfo(originalPropertiesMap, new java.util.HashMap<>()));
             }
         } catch (Exception e) {
-            // Restore original properties on any exception
-            properties.clear();
-            properties.putAll(originalProperties);
-            logger.error("Error during producer optimization, restored original properties", e);
+            logger.error("[ERR-053] Error during producer optimization: {}", e.getMessage(), e);
         }
     }
 
@@ -164,26 +255,35 @@ public class KafkaProducerInterceptor {
         try {
             // Process only for the outer-most constructor call
             if (!isInitialProducerCreation()) {
-                logger.debug("Skipping internal constructor delegation");
                 return;
             }
 
             java.util.Deque<Properties> stack = TL_PROPS_STACK.get();
             if (stack.isEmpty()) {
-                logger.error("No captured properties for this producer constructor; skipping stats reporter setup");
+                logger.error("[ERR-006] No captured properties for this producer constructor; skipping stats reporter setup");
                 return;
             }
 
             Properties producerProps = stack.pop();
 
+            // Retrieve matching UUID for this constructor instance
+            java.util.Deque<String> uuidStack = TL_UUID_STACK.get();
+            String producerUuid = "";
+            if (!uuidStack.isEmpty()) {
+                producerUuid = uuidStack.pop();
+            } else {
+                logger.error("[ERR-127] No producer UUID found for this constructor instance");
+            }
+
             // Clean up ThreadLocal when outer-most constructor finishes
             if (stack.isEmpty()) {
                 TL_PROPS_STACK.remove();
+                TL_UUID_STACK.remove();
             }
 
             String bootstrapServers = producerProps.getProperty("bootstrap.servers");
             if (bootstrapServers == null || bootstrapServers.isEmpty()) {
-                logger.error("bootstrap.servers missing in captured properties; skipping reporter setup");
+                logger.error("[ERR-007] bootstrap.servers missing in captured properties; skipping reporter setup");
                 return;
             }
 
@@ -191,7 +291,6 @@ public class KafkaProducerInterceptor {
 
             // Skip internal library producers (identified by client.id prefix)
             if (rawClientId != null && rawClientId.startsWith(SUPERSTREAM_LIBRARY_PREFIX)) {
-                logger.debug("Skipping Superstream internal producer: {}", rawClientId);
                 return;
             }
 
@@ -206,7 +305,34 @@ public class KafkaProducerInterceptor {
                 logger.debug("Registering producer with metrics collector: {} (client.id='{}')", producerId, clientIdForStats);
 
                 // Create a reporter for this producer instance – pass the original client.id
-                ClientStatsReporter reporter = new ClientStatsReporter(bootstrapServers, producerProps, clientIdForStats);
+                ClientStatsReporter reporter = new ClientStatsReporter(bootstrapServers, producerProps, clientIdForStats, producerUuid);
+
+                // Set the most impactful topic if possible
+                try {
+                    MetadataMessage metadataMessage = null;
+                    List<String> topics = null;
+                    // Try to get metadata and topics if available
+                    if (producerProps != null) {
+                        String bootstrapServersProp = producerProps.getProperty("bootstrap.servers");
+                        if (bootstrapServersProp != null) {
+                            AbstractMap.SimpleEntry<MetadataMessage, String> metadataResult = SuperstreamManager.getInstance().getOrFetchMetadataMessage(bootstrapServersProp, producerProps);
+                            metadataMessage = metadataResult.getKey();
+                        }
+                        String topicsEnv = System.getenv("SUPERSTREAM_TOPICS_LIST");
+                        if (topicsEnv != null && !topicsEnv.trim().isEmpty()) {
+                            topics = Arrays.asList(topicsEnv.split(","));
+                        }
+                    }
+                    if (metadataMessage != null && topics != null) {
+                        String mostImpactfulTopic = SuperstreamManager.getInstance().getConfigurationOptimizer().getMostImpactfulTopicName(metadataMessage, topics);
+                        if (mostImpactfulTopic == null) {
+                            mostImpactfulTopic = "";
+                        }
+                        reporter.updateMostImpactfulTopic(mostImpactfulTopic);
+                    }
+                } catch (Exception e) {
+                    logger.debug("Failed to get most impactful topic: {}", e.getMessage());
+                }
 
                 // Create metrics info for this producer
                 ProducerMetricsInfo metricsInfo = new ProducerMetricsInfo(producer, reporter);
@@ -222,13 +348,33 @@ public class KafkaProducerInterceptor {
                     TL_CFG_STACK.remove();
                 }
                 if (cfgInfo != null) {
-                    reporter.setConfigurations(cfgInfo.originalConfig, cfgInfo.optimizedConfig);
+                    // Use the original configuration from ConfigInfo and get complete config with defaults
+                    java.util.Map<String, Object> completeConfig = ai.superstream.core.ClientReporter.getCompleteProducerConfig(cfgInfo.originalConfig);
+                    java.util.Map<String, Object> optimizedConfig = cfgInfo.optimizedConfig != null ? cfgInfo.optimizedConfig : new java.util.HashMap<>();
+                    reporter.setConfigurations(completeConfig, optimizedConfig);
+                    // If optimizedConfig is empty and there is an error, set the error on the reporter
+                    if (optimizedConfig.isEmpty() && cfgInfo.error != null && !cfgInfo.error.isEmpty()) {
+                        reporter.updateError(cfgInfo.error);
+                    }
+                } else {
+                    // No ConfigInfo available, so no optimization was performed
+                    // Use the producer properties as both original and optimized (since no changes were made)
+                    java.util.Map<String, Object> originalPropsMap = propertiesToMap(producerProps);
+                    java.util.Map<String, Object> completeConfig = ai.superstream.core.ClientReporter.getCompleteProducerConfig(originalPropsMap);
+                    reporter.setConfigurations(completeConfig, new java.util.HashMap<>());
+                }
+
+                // Trigger immediate metrics collection for this producer
+                try {
+                    sharedCollector.collectMetricsForProducer(producerId, metricsInfo);
+                } catch (Exception e) {
+                    logger.error("[ERR-047] Failed to collect immediate metrics for new producer {}: {}", producerId, e.getMessage(), e);
                 }
 
                 logger.debug("Producer {} registered with shared metrics collector", producerId);
             }
         } catch (Exception e) {
-            logger.error("Error registering producer with metrics collector: " + e.getMessage(), e);
+            logger.error("[ERR-008] Error registering producer with metrics collector: {}", e.getMessage(), e);
         }
     }
 
@@ -237,41 +383,48 @@ public class KafkaProducerInterceptor {
      */
     public static Properties extractProperties(Object[] args) {
         // Look for Properties or Map in the arguments
+        if (args == null) {
+            logger.error("[ERR-009] extractProperties: args array is null");
+            return null;
+        }
+
+        logger.debug("extractProperties: Processing {} arguments", args.length);
         for (Object arg : args) {
-            if (arg == null)
+            if (arg == null) {
+                logger.debug("extractProperties: Found null argument");
                 continue;
+            }
+
+            String className = arg.getClass().getName();
+            logger.debug("extractProperties: Processing argument of type: {}", className);
 
             if (arg instanceof Properties) {
-                return (Properties) arg;
+                logger.debug("extractProperties: Found Properties object");
+                Properties props = (Properties) arg;
+                normalizeBootstrapServers(props);
+                return props;
             }
 
             if (arg instanceof Map) {
+                logger.debug("extractProperties: Found Map object of type: {}", arg.getClass().getName());
+
+                // If the map is unmodifiable we cannot actually modify it later; we still let the caller decide
                 try {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> map = (Map<String, Object>) arg;
-                    Properties props = new Properties();
-                    for (Map.Entry<String, Object> entry : map.entrySet()) {
-                        if (entry.getValue() != null) {
-                            // Handle bootstrap.servers when passed as a List
-                            if (entry.getKey().equals("bootstrap.servers") && entry.getValue() instanceof List) {
-                                @SuppressWarnings("unchecked")
-                                List<String> servers = (List<String>) entry.getValue();
-                                props.put(entry.getKey(), String.join(",", servers));
-                            } else {
-                                props.put(entry.getKey(), entry.getValue());
-                            }
-                        }
-                    }
+                    Properties props = new MapBackedProperties(map);
+                    logger.debug("extractProperties: Successfully converted Map to Properties");
                     return props;
                 } catch (ClassCastException e) {
                     // Not the map type we expected
-                    logger.debug("Could not cast Map to Map<String, Object>");
+                    logger.error("[ERR-011] extractProperties: Could not cast Map to Map<String, Object>: {}", e.getMessage(), e);
+                    return null;
                 }
             }
 
             // Handle ProducerConfig object which contains properties
-            String className = arg.getClass().getName();
             if (className.endsWith("ProducerConfig")) {
+                logger.debug("extractProperties: Found ProducerConfig object");
                 try {
                     // Try multiple possible field names
                     String[] fieldNames = { "originals", "values", "props", "properties", "configs" };
@@ -281,36 +434,34 @@ public class KafkaProducerInterceptor {
                             Field field = arg.getClass().getDeclaredField(fieldName);
                             field.setAccessible(true);
                             Object fieldValue = field.get(arg);
+                            logger.debug("extractProperties: Found field {} with value type: {}", fieldName,
+                                    fieldValue != null ? fieldValue.getClass().getName() : "null");
 
                             if (fieldValue instanceof Map) {
                                 @SuppressWarnings("unchecked")
                                 Map<String, Object> map = (Map<String, Object>) fieldValue;
 
-                                Properties props = new Properties();
-                                for (Map.Entry<String, Object> entry : map.entrySet()) {
-                                    if (entry.getValue() != null) {
-                                        // Handle bootstrap.servers when passed as a List
-                                        if (entry.getKey().equals("bootstrap.servers")
-                                                && entry.getValue() instanceof List) {
-                                            @SuppressWarnings("unchecked")
-                                            List<String> servers = (List<String>) entry.getValue();
-                                            props.put(entry.getKey(), String.join(",", servers));
-                                        } else {
-                                            props.put(entry.getKey(), entry.getValue());
-                                        }
-                                    }
-                                }
+                                Properties props = new MapBackedProperties(map);
+                                logger.debug(
+                                        "extractProperties: Successfully converted ProducerConfig field {} to Properties",
+                                        fieldName);
                                 return props;
                             } else if (fieldValue instanceof Properties) {
-                                return (Properties) fieldValue;
+                                logger.debug("extractProperties: Found Properties in ProducerConfig field {}",
+                                        fieldName);
+                                Properties props = (Properties) fieldValue;
+                                normalizeBootstrapServers(props);
+                                return props;
                             }
                         } catch (NoSuchFieldException e) {
                             // Field doesn't exist, try the next one
+                            logger.error("[ERR-017] extractProperties: Field {} not found in ProducerConfig", fieldName);
                             continue;
                         }
                     }
 
                     // Try to call getters if field access failed
+                    logger.debug("extractProperties: Trying getter methods for ProducerConfig");
                     for (Method method : arg.getClass().getMethods()) {
                         if ((method.getName().equals("originals") ||
                                 method.getName().equals("values") ||
@@ -323,33 +474,30 @@ public class KafkaProducerInterceptor {
                                 method.getParameterCount() == 0) {
 
                             Object result = method.invoke(arg);
+                            logger.debug("extractProperties: Called method {} with result type: {}", method.getName(),
+                                    result != null ? result.getClass().getName() : "null");
                             if (result instanceof Map) {
                                 @SuppressWarnings("unchecked")
                                 Map<String, Object> map = (Map<String, Object>) result;
 
-                                Properties props = new Properties();
-                                for (Map.Entry<String, Object> entry : map.entrySet()) {
-                                    if (entry.getValue() != null) {
-                                        // Handle bootstrap.servers when passed as a List
-                                        if (entry.getKey().equals("bootstrap.servers")
-                                                && entry.getValue() instanceof List) {
-                                            @SuppressWarnings("unchecked")
-                                            List<String> servers = (List<String>) entry.getValue();
-                                            props.put(entry.getKey(), String.join(",", servers));
-                                        } else {
-                                            props.put(entry.getKey(), entry.getValue());
-                                        }
-                                    }
-                                }
+                                Properties props = new MapBackedProperties(map);
+                                logger.debug(
+                                        "extractProperties: Successfully converted ProducerConfig method {} result to Properties",
+                                        method.getName());
                                 return props;
                             } else if (result instanceof Properties) {
-                                return (Properties) result;
+                                logger.debug("extractProperties: Found Properties in ProducerConfig method {} result",
+                                        method.getName());
+                                Properties props = (Properties) result;
+                                normalizeBootstrapServers(props);
+                                return props;
                             }
                         }
                     }
 
                     // Last resort: Try to get the ProducerConfig's bootstrap.servers value
                     // and create a minimal Properties object
+                    logger.debug("extractProperties: Trying last resort method to get bootstrap.servers");
                     for (Method method : arg.getClass().getMethods()) {
                         if (method.getName().equals("getString") && method.getParameterCount() == 1) {
                             try {
@@ -362,21 +510,69 @@ public class KafkaProducerInterceptor {
                                     if (clientId != null) {
                                         minProps.put("client.id", clientId);
                                     }
+                                    logger.debug(
+                                            "extractProperties: Created minimal Properties with bootstrap.servers and client.id");
                                     return minProps;
                                 }
                             } catch (Exception e) {
-                                logger.debug("Failed to get bootstrap.servers from ProducerConfig");
+                                logger.debug("extractProperties: Failed to get bootstrap.servers from ProducerConfig",
+                                        e);
                             }
                         }
                     }
 
                 } catch (Exception e) {
-                    logger.debug("Failed to extract properties from ProducerConfig: " + e.getMessage());
+                    logger.error("[ERR-018] extractProperties: Failed to extract properties from ProducerConfig: {}",
+                            e.getMessage(), e);
+                            return null;
                 }
             }
         }
 
+        logger.error("[ERR-019] extractProperties: No valid configuration object found in arguments");
         return null;
+    }
+
+    /**
+     * Ensure that the bootstrap.servers property is stored as a comma-separated String even when
+     * the user supplied it as a Collection (or array) inside a java.util.Properties instance.
+     * This keeps the rest of the optimisation pipeline – which relies on getProperty(String) – working.
+     */
+    private static void normalizeBootstrapServers(Properties props) {
+        if (props == null) {
+            return;
+        }
+
+        Object bsObj = props.get("bootstrap.servers");
+        if (bsObj == null) {
+            return;
+        }
+
+        String joined = null;
+        if (bsObj instanceof java.util.Collection) {
+            java.util.Collection<?> col = (java.util.Collection<?>) bsObj;
+            StringBuilder sb = new StringBuilder();
+            for (Object o : col) {
+                if (o == null) continue;
+                if (sb.length() > 0) sb.append(',');
+                sb.append(o.toString());
+            }
+            joined = sb.toString();
+        } else if (bsObj.getClass().isArray()) {
+            int len = java.lang.reflect.Array.getLength(bsObj);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < len; i++) {
+                Object o = java.lang.reflect.Array.get(bsObj, i);
+                if (o == null) continue;
+                if (sb.length() > 0) sb.append(',');
+                sb.append(o.toString());
+            }
+            joined = sb.toString();
+        }
+
+        if (joined != null && !joined.isEmpty()) {
+            props.put("bootstrap.servers", joined);
+        }
     }
 
     /**
@@ -394,8 +590,16 @@ public class KafkaProducerInterceptor {
         for (int i = 1; i < stackTrace.length; i++) {
             String className = stackTrace[i].getClassName();
 
-            // Look for KafkaProducer in the class name
-            if (className.endsWith("KafkaProducer")) {
+            // Only treat the *actual* KafkaProducer class (or its anonymous / inner classes) as a match.
+            // This avoids counting user subclasses such as TemplateKafkaProducer which also end with the
+            // same suffix and would otherwise be mistaken for an internal constructor delegation.
+            String simpleName;
+            int lastDotIdx = className.lastIndexOf('.');
+            simpleName = (lastDotIdx >= 0) ? className.substring(lastDotIdx + 1) : className;
+
+            boolean isKafkaProducerClass = simpleName.equals("KafkaProducer") || simpleName.startsWith("KafkaProducer$");
+
+            if (isKafkaProducerClass) {
                 foundKafkaProducer = true;
                 kafkaProducerCount++;
 
@@ -557,13 +761,12 @@ public class KafkaProducerInterceptor {
                             COLLECTION_INTERVAL_MS / 2, // Start sooner for first collection
                             COLLECTION_INTERVAL_MS,
                             TimeUnit.MILLISECONDS);
-                    logger.debug("Metrics collection scheduler started successfully");
                 } catch (Exception e) {
-                    logger.error("Failed to schedule metrics collection: " + e.getMessage(), e);
+                    logger.error("[ERR-012] Failed to schedule metrics collection: {}", e.getMessage(), e);
                     running.set(false);
                 }
             } else {
-                logger.info("Metrics collector already running");
+                logger.debug("Metrics collector already running");
             }
         }
 
@@ -606,7 +809,7 @@ public class KafkaProducerInterceptor {
                             skippedCount++;
                         }
                     } catch (Exception e) {
-                        logger.error("Error collecting metrics for producer {}: {}", producerId, e.getMessage());
+                        logger.error("[ERR-013] Error collecting metrics for producer {}: {}", producerId, e.getMessage(), e);
                     }
                 }
 
@@ -615,7 +818,7 @@ public class KafkaProducerInterceptor {
                         totalProducers, successCount, skippedCount);
 
             } catch (Exception e) {
-                logger.error("Error in metrics collection cycle: " + e.getMessage(), e);
+                logger.error("[ERR-014] Error in metrics collection cycle: {}", e.getMessage(), e);
             }
         }
 
@@ -637,98 +840,205 @@ public class KafkaProducerInterceptor {
                     return false;
                 }
 
+                // Extract the metrics map once per invocation and reuse in subsequent calculations
+                java.util.Map<?,?> metricsMap = extractMetricsMap(metrics);
+
                 // Try to get the compression ratio metric; fall back to 1.0 (no compression)
-                double compressionRatio = getCompressionRatio(metrics);
+                double compressionRatio = getCompressionRatio(metricsMap);
                 if (compressionRatio <= 0) {
                     logger.debug("No compression ratio metric found; assuming ratio 1.0 for producer {}", producerId);
                     compressionRatio = 1.0;
                 }
 
                 // Get the outgoing-byte-total metrics - this is a per-node metric that
-                // represents compressed bytes
-                // We need to sum it across all nodes, and it's cumulative over time
-                long totalOutgoingBytes = getOutgoingBytesTotal(metrics);
+                // represents compressed bytes.  We need to sum it across all nodes and it is
+                // cumulative over time.
+                long totalOutgoingBytes = getOutgoingBytesTotal(metricsMap);
 
-                if (totalOutgoingBytes <= 0) {
-                    logger.debug("No outgoing bytes found for producer {}", producerId);
-                    return false;
-                }
-
-                // Calculate the delta since the last collection cycle
+                // Calculate the delta since the last collection cycle (can be zero when idle)
                 CompressionStats prevStats = info.getLastStats();
-                if (totalOutgoingBytes <= prevStats.compressedBytes) {
-                    logger.debug("No new data since last collection for producer {} (current: {}, previous: {})",
-                            producerId, totalOutgoingBytes, prevStats.compressedBytes);
-                    return false;
-                }
-
-                // The compressed bytes is the delta since the last collection
-                long compressedBytes = totalOutgoingBytes - prevStats.compressedBytes;
+                long compressedBytes = Math.max(0, totalOutgoingBytes - prevStats.compressedBytes);
 
                 // Use the compression ratio to calculate the uncompressed size
                 // compression_ratio = compressed_size / uncompressed_size
                 // Therefore: uncompressed_size = compressed_size / compression_ratio
-                long uncompressedBytes = compressionRatio > 0 ? (long) (compressedBytes / compressionRatio)
-                        : compressedBytes;
+                long uncompressedBytes = (compressionRatio > 0 && compressedBytes > 0)
+                        ? (long) (compressedBytes / compressionRatio)
+                        : 0;
 
                 // Update the last stats with the new total (cumulative) bytes
                 // For uncompressed, add the new delta to the previous total
                 info.updateLastStats(
                         new CompressionStats(totalOutgoingBytes, prevStats.uncompressedBytes + uncompressedBytes));
 
-                // Extract a snapshot of all producer metrics to include in stats reporting
+                // Create snapshots for different metric types
                 java.util.Map<String, Double> allMetricsSnapshot = new java.util.HashMap<>();
+                java.util.Map<String, java.util.Map<String, Double>> topicMetricsSnapshot = new java.util.HashMap<>();
+                java.util.Map<String, java.util.Map<String, Double>> nodeMetricsSnapshot = new java.util.HashMap<>();
+                java.util.Map<String, String> appInfoMetricsSnapshot = new java.util.HashMap<>();
+
                 try {
-                    java.util.Map<?, ?> rawMetricsMap = extractMetricsMap(metrics);
+                    java.util.Map<?, ?> rawMetricsMap = metricsMap;
                     if (rawMetricsMap != null) {
                         for (java.util.Map.Entry<?, ?> mEntry : rawMetricsMap.entrySet()) {
                             Object mKey = mEntry.getKey();
                             String group = null;
                             String namePart;
                             String keyString = null;
+                            String topicName = null;
+                            String nodeId = null;
                             if (mKey == null) continue;
 
                             if (mKey.getClass().getName().endsWith("MetricName")) {
                                 try {
                                     java.lang.reflect.Method nameMethod = findMethod(mKey.getClass(), "name");
                                     java.lang.reflect.Method groupMethod = findMethod(mKey.getClass(), "group");
+                                    java.lang.reflect.Method tagsMethod = findMethod(mKey.getClass(), "tags");
                                     namePart = (nameMethod != null) ? nameMethod.invoke(mKey).toString() : mKey.toString();
                                     group = (groupMethod != null) ? groupMethod.invoke(mKey).toString() : "";
-                                    if (!"producer-metrics".equals(group)) {
+                                    if ("producer-metrics".equals(group)) {
+                                        keyString = namePart;
+                                    } else if ("producer-topic-metrics".equals(group)) {
+                                        if (tagsMethod != null) {
+                                            tagsMethod.setAccessible(true);
+                                            Object tagObj = tagsMethod.invoke(mKey);
+                                            if (tagObj instanceof java.util.Map) {
+                                                Object topicObj = ((java.util.Map<?,?>)tagObj).get("topic");
+                                                if (topicObj != null) {
+                                                    topicName = topicObj.toString();
+                                                    keyString = namePart;
+                                                }
+                                            }
+                                        }
+                                    } else if ("producer-node-metrics".equals(group)) {
+                                        if (tagsMethod != null) {
+                                            tagsMethod.setAccessible(true);
+                                            Object tagObj = tagsMethod.invoke(mKey);
+                                            if (tagObj instanceof java.util.Map) {
+                                                Object nodeIdObj = ((java.util.Map<?,?>)tagObj).get("node-id");
+                                                if (nodeIdObj != null) {
+                                                    String rawNodeId = nodeIdObj.toString();
+                                                    String[] parts = rawNodeId.split("-");
+                                                    if (parts.length > 1) {
+                                                        try {
+                                                            int id = Integer.parseInt(parts[1]);
+                                                            if (id >= 0) {
+                                                                nodeId = String.valueOf(id);
+                                                                keyString = namePart;
+                                                            }
+                                                        } catch (NumberFormatException e) {
+                                                            // ignore making us ignore the negative node IDs (represents metrics from the controller that we don't care about)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if ("app-info".equals(group)) {
+                                        keyString = namePart;
+                                    } else {
                                         continue; // skip non-producer groups
                                     }
-                                    keyString = namePart; // store without the producer-metrics prefix
-                                } catch (Exception ignored) {}
+                                } catch (Exception e) {
+                                    logger.debug("Failed to process metric name: {}", e.getMessage());
+                                }
                             } else if (mKey instanceof String) {
                                 keyString = mKey.toString();
-                                if (!keyString.startsWith("producer-metrics")) {
-                                    continue; // skip
-                                }
-                                // strip the prefix (and the following dot if present)
+
+                                // producer-metrics group (per producer)
                                 if (keyString.startsWith("producer-metrics.")) {
                                     keyString = keyString.substring("producer-metrics.".length());
-                                } else if ("producer-metrics".equals(keyString)) {
-                                    continue; // unlikely but skip bare prefix
+
+                                // producer-topic-metrics group (per topic)
+                                } else if (keyString.startsWith("producer-topic-metrics.")) {
+                                    String[] parts = keyString.split("\\.", 3);
+                                    if (parts.length == 3) {
+                                        topicName = parts[1];
+                                        keyString = parts[2];
+                                    }
+
+                                // producer-node-metrics group (per broker node)
+                                } else if (keyString.startsWith("producer-node-metrics.")) {
+                                    String[] parts = keyString.split("\\.", 3);
+                                    if (parts.length == 3) {
+                                        String rawNodeId = parts[1];
+                                        String[] idParts = rawNodeId.split("-");
+                                        if (idParts.length > 1) {
+                                            try {
+                                                int id = Integer.parseInt(idParts[1]);
+                                                if (id >= 0) {
+                                                    nodeId = String.valueOf(id);
+                                                    keyString = parts[2];
+                                                }
+                                            } catch (NumberFormatException e) {
+                                                // ignore making us ignore the negative node IDs (represents metrics from the controller that we don't care about)
+                                            }
+                                        }
+                                    }
+
+                                // app-info group (string values)
+                                } else if (keyString.startsWith("app-info.")) {
+                                    keyString = keyString.substring("app-info.".length());
+
+                                // skip metrics groups that are not producer-metrics, producer-topic-metrics, producer-node-metrics, or app-info
+                                } else if (!keyString.startsWith("producer-metrics") &&
+                                           !keyString.startsWith("producer-topic-metrics") &&
+                                           !keyString.startsWith("producer-node-metrics") &&
+                                           !keyString.startsWith("app-info")) {
+                                    continue;
                                 }
                             }
                             if (keyString == null) continue;
+
+                            // Handle app-info metrics differently - store as strings
+                            if ("app-info".equals(group) || 
+                                (mKey instanceof String && ((String)mKey).startsWith("app-info"))) {
+                                Object value = mEntry.getValue();
+                                String stringValue = null;
+                                if (value != null) {
+                                    // Try to extract the value from KafkaMetric if possible
+                                    try {
+                                        java.lang.reflect.Method metricValueMethod = value.getClass().getMethod("metricValue");
+                                        Object actualValue = metricValueMethod.invoke(value);
+                                        stringValue = (actualValue != null) ? actualValue.toString() : null;
+                                    } catch (Exception e) {
+                                        stringValue = value.toString();
+                                    }
+                                }
+                                if (stringValue != null) {
+                                    appInfoMetricsSnapshot.put(keyString, stringValue);
+                                }
+                                continue;
+                            }
+
+                            // Handle numeric metrics
                             double mVal = extractMetricValue(mEntry.getValue());
                             if (!Double.isNaN(mVal)) {
-                                allMetricsSnapshot.put(keyString, mVal);
+                                if (topicName != null) {
+                                    topicMetricsSnapshot.computeIfAbsent(topicName, k -> new java.util.HashMap<>())
+                                            .put(keyString, mVal);
+                                } else if (nodeId != null) {
+                                    nodeMetricsSnapshot.computeIfAbsent(nodeId, k -> new java.util.HashMap<>())
+                                            .put(keyString, mVal);
+                                } else {
+                                    allMetricsSnapshot.put(keyString, mVal);
+                                }
                             }
                         }
                     }
                 } catch (Exception snapshotEx) {
-                    // ignore snapshot errors
+                    logger.error("[ERR-015] Error extracting metrics snapshot for producer {}: {}", producerId, snapshotEx.getMessage(), snapshotEx);
                 }
 
-                // Update reporter with latest metrics snapshot
+                // Update reporter with latest metrics snapshots
                 reporter.updateProducerMetrics(allMetricsSnapshot);
+                reporter.updateTopicMetrics(topicMetricsSnapshot);
+                reporter.updateNodeMetrics(nodeMetricsSnapshot);
+                reporter.updateAppInfoMetrics(appInfoMetricsSnapshot);
 
                 // Aggregate topics written by this producer from producer-topic-metrics
                 java.util.Set<String> newTopics = new java.util.HashSet<>();
                 try {
-                    java.util.Map<?,?> rawMapForTopics = extractMetricsMap(metrics);
+                    java.util.Map<?,?> rawMapForTopics = metricsMap;
                     if (rawMapForTopics != null) {
                         for (java.util.Map.Entry<?,?> me : rawMapForTopics.entrySet()) {
                             Object k = me.getKey();
@@ -749,11 +1059,15 @@ public class KafkaProducerInterceptor {
                                             }
                                         }
                                     }
-                                } catch (Exception ignore) {}
+                                } catch (Exception e) {
+                                    logger.debug("Failed to extract topic from metric tags: {}", e.getMessage());
+                                }
                             }
                         }
                     }
-                } catch (Exception ignore) {}
+                } catch (Exception e) {
+                    logger.debug("Failed to aggregate topics from metrics: {}", e.getMessage());
+                }
 
                 if (!newTopics.isEmpty()) {
                     reporter.addTopics(newTopics);
@@ -767,7 +1081,7 @@ public class KafkaProducerInterceptor {
 
                 return true;
             } catch (Exception e) {
-                logger.error("Error collecting Kafka metrics for producer {}: {}", producerId, e.getMessage(), e);
+                logger.error("[ERR-016] Error collecting Kafka metrics for producer {}: {}", producerId, e.getMessage(), e);
                 return false;
             }
         }
@@ -775,34 +1089,28 @@ public class KafkaProducerInterceptor {
         /**
          * Get the compression ratio from the metrics object.
          */
-        public double getCompressionRatio(Object metrics) {
+        public double getCompressionRatio(java.util.Map<?,?> metricsMap) {
             try {
-                // Extract the metrics map from the Metrics object
-                Map<?, ?> metricsMap = extractMetricsMap(metrics);
                 if (metricsMap != null) {
                     logger.debug("Metrics map size: {}", metricsMap.size());
 
-                    // Look for direct compression metrics only
                     double compressionRatio = findDirectCompressionMetric(metricsMap);
                     if (compressionRatio > 0) {
                         return compressionRatio;
                     }
-                } else {
-                    logger.debug("Could not extract metrics map from: {}", metrics.getClass().getName());
                 }
             } catch (Exception e) {
                 logger.debug("Error getting compression ratio: " + e.getMessage(), e);
             }
-
             return 0;
         }
 
         /**
          * Find direct compression metrics in the metrics map.
          */
-        private double findDirectCompressionMetric(Map<?, ?> metricsMap) {
+        private double findDirectCompressionMetric(java.util.Map<?, ?> metricsMap) {
             // Look for compression metrics in the *producer-metrics* group only
-            for (Map.Entry<?, ?> entry : metricsMap.entrySet()) {
+            for (java.util.Map.Entry<?, ?> entry : metricsMap.entrySet()) {
                 Object key = entry.getKey();
 
                 // Handle MetricName keys
@@ -815,15 +1123,22 @@ public class KafkaProducerInterceptor {
                             nameMethod.setAccessible(true);
                             groupMethod.setAccessible(true);
 
-                            String name = nameMethod.invoke(key).toString();
-                            String group = groupMethod.invoke(key).toString();
+                            Object nameObj = nameMethod.invoke(key);
+                            Object groupObj = groupMethod.invoke(key);
+                            
+                            if (nameObj == null || groupObj == null) {
+                                continue;
+                            }
+                            
+                            String name = nameObj.toString();
+                            String group = groupObj.toString();
 
                             // Only accept metrics from producer-metrics group
-                            if (group.equals("producer-metrics") &&
-                                    (name.equals("compression-rate-avg") || name.equals("compression-ratio"))) {
+                            if ("producer-metrics".equals(group) &&
+                                    ("compression-rate-avg".equals(name) || "compression-ratio".equals(name))) {
 
                                 double value = extractMetricValue(entry.getValue());
-                                if (value > 0) {
+                                if (value >= 0) {
                                     logger.debug("Found producer-metrics compression metric: {} -> {}", name, value);
                                     return value;
                                 }
@@ -838,7 +1153,7 @@ public class KafkaProducerInterceptor {
                     if (keyStr.startsWith("producer-metrics") &&
                             (keyStr.contains("compression-rate-avg") || keyStr.contains("compression-ratio"))) {
                         double value = extractMetricValue(entry.getValue());
-                        if (value > 0) {
+                        if (value >= 0) {
                             logger.debug("Found producer-metrics compression metric (string key): {} -> {}", keyStr, value);
                             return value;
                         }
@@ -852,14 +1167,13 @@ public class KafkaProducerInterceptor {
          * Get the total outgoing bytes for the *producer* (after compression).
          * Uses producer-metrics group only to keep numbers per-producer rather than per-node.
          */
-        private long getOutgoingBytesTotal(Object metrics) {
+        public long getOutgoingBytesTotal(java.util.Map<?,?> metricsMap) {
             try {
-                Map<?, ?> metricsMap = extractMetricsMap(metrics);
                 if (metricsMap != null) {
                     String targetGroup = "producer-metrics";
                     String[] candidateNames = {"outgoing-byte-total", "byte-total"};
 
-                    for (Map.Entry<?, ?> entry : metricsMap.entrySet()) {
+                    for (java.util.Map.Entry<?, ?> entry : metricsMap.entrySet()) {
                         Object key = entry.getKey();
 
                         // MetricName keys
@@ -870,14 +1184,21 @@ public class KafkaProducerInterceptor {
                                 if (nameMethod != null && groupMethod != null) {
                                     nameMethod.setAccessible(true);
                                     groupMethod.setAccessible(true);
-                                    String name = nameMethod.invoke(key).toString();
-                                    String group = groupMethod.invoke(key).toString();
+                                    Object nameObj = nameMethod.invoke(key);
+                                    Object groupObj = groupMethod.invoke(key);
 
-                                    if (group.equals(targetGroup)) {
+                                    if (nameObj == null || groupObj == null) {
+                                        continue;
+                                    }
+                                    
+                                    String name = nameObj.toString();
+                                    String group = groupObj.toString();
+
+                                    if (targetGroup.equals(group)) {
                                         for (String n : candidateNames) {
                                             if (n.equals(name)) {
                                                 double val = extractMetricValue(entry.getValue());
-                                                if (val > 0) {
+                                                if (val >= 0) {
                                                     logger.debug("Found producer-metrics {} = {}", name, val);
                                                     return (long) val;
                                                 }
@@ -890,7 +1211,7 @@ public class KafkaProducerInterceptor {
                             String keyStr = (String) key;
                             if (keyStr.startsWith(targetGroup) && (keyStr.contains("outgoing-byte-total") || keyStr.contains("byte-total"))) {
                                 double val = extractMetricValue(entry.getValue());
-                                if (val > 0) {
+                                if (val >= 0) {
                                     logger.debug("Found producer-metrics byte counter (string key) {} = {}", keyStr, val);
                                     return (long) val;
                                 }
@@ -910,15 +1231,15 @@ public class KafkaProducerInterceptor {
          * Handles both cases where metrics is a Map directly or a Metrics object
          * with an internal 'metrics' field.
          */
-        private Map<?, ?> extractMetricsMap(Object metrics) {
+        private java.util.Map<?, ?> extractMetricsMap(Object metrics) {
             if (metrics == null) {
                 return null;
             }
 
             try {
                 // If it's already a Map, just cast it
-                if (metrics instanceof Map) {
-                    return (Map<?, ?>) metrics;
+                if (metrics instanceof java.util.Map) {
+                    return (java.util.Map<?, ?>) metrics;
                 }
 
                 // Try to extract the internal metrics map field
@@ -926,9 +1247,9 @@ public class KafkaProducerInterceptor {
                 if (metricsField != null) {
                     metricsField.setAccessible(true);
                     Object metricsValue = metricsField.get(metrics);
-                    if (metricsValue instanceof Map) {
+                    if (metricsValue instanceof java.util.Map) {
                         logger.debug("Successfully extracted metrics map from Metrics object");
-                        return (Map<?, ?>) metricsValue;
+                        return (java.util.Map<?, ?>) metricsValue;
                     }
                 }
 
@@ -937,9 +1258,9 @@ public class KafkaProducerInterceptor {
                 if (getMetricsMethod != null) {
                     getMetricsMethod.setAccessible(true);
                     Object metricsValue = getMetricsMethod.invoke(metrics);
-                    if (metricsValue instanceof Map) {
+                    if (metricsValue instanceof java.util.Map) {
                         logger.debug("Successfully extracted metrics map via method");
-                        return (Map<?, ?>) metricsValue;
+                        return (java.util.Map<?, ?>) metricsValue;
                     }
                 }
 
@@ -996,11 +1317,142 @@ public class KafkaProducerInterceptor {
      * phase and stats reporter creation using ThreadLocal.
      */
     public static class ConfigInfo {
-        public final java.util.Map<String,Object> originalConfig;
-        public final java.util.Map<String,Object> optimizedConfig;
-        public ConfigInfo(java.util.Map<String,Object> orig, java.util.Map<String,Object> opt) {
+        public final java.util.Map<String, Object> originalConfig;
+        public final java.util.Map<String, Object> optimizedConfig;
+        public final String error;
+
+        public ConfigInfo(java.util.Map<String, Object> orig, java.util.Map<String, Object> opt) {
             this.originalConfig = orig;
             this.optimizedConfig = opt;
+            this.error = null;
+        }
+
+        public ConfigInfo(java.util.Map<String, Object> orig, java.util.Map<String, Object> opt, String error) {
+            this.originalConfig = orig;
+            this.optimizedConfig = opt;
+            this.error = error;
+        }
+    }
+
+    /**
+     * A Properties view that writes through to a backing Map, ensuring updates are visible
+     * to code that continues to use the original Map instance.
+     */
+    public static class MapBackedProperties extends java.util.Properties {
+        private static final long serialVersionUID = 1L;
+        private final java.util.Map<String,Object> backing;
+
+        public MapBackedProperties(java.util.Map<String,Object> backing) {
+            this.backing = backing;
+            super.putAll(backing);
+        }
+
+        @Override
+        public synchronized Object put(Object key, Object value) {
+            try { backing.put(String.valueOf(key), value); } catch (UnsupportedOperationException ignored) {}
+            return super.put(key, value);
+        }
+
+        @Override
+        public synchronized Object remove(Object key) {
+            try { backing.remove(String.valueOf(key)); } catch (UnsupportedOperationException ignored) {}
+            return super.remove(key);
+        }
+
+        @Override
+        public synchronized void putAll(java.util.Map<?,?> m) {
+            for (java.util.Map.Entry<?,?> e : m.entrySet()) {
+                put(e.getKey(), e.getValue());
+            }
+        }
+
+        @Override
+        public String getProperty(String key) {
+            Object value = backing.get(key);
+            if (value == null) {
+                return super.getProperty(key);
+            }
+            
+            // Handle special case for bootstrap.servers which can be any Collection<String>
+            if ("bootstrap.servers".equals(key) && value instanceof java.util.Collection) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    java.util.Collection<String> serverCollection = (java.util.Collection<String>) value;
+                    return String.join(",", serverCollection);
+                } catch (ClassCastException e) {
+                    // If the collection doesn't contain strings, fall back to toString()
+                    logger.debug("bootstrap.servers collection contains non-String elements, falling back to toString()");
+                }
+            }
+            
+            // For all other cases, return the original value
+            return value.toString();
+        }
+
+        @Override
+        public String getProperty(String key, String defaultValue) {
+            String result = getProperty(key);
+            return result != null ? result : defaultValue;
+        }
+
+        @Override
+        public Object get(Object key) {
+            return backing.get(key);
+        }
+    }
+
+    // Utility method to convert Properties to Map<String, Object>
+    public static java.util.Map<String, Object> propertiesToMap(Properties props) {
+        java.util.Map<String, Object> map = new java.util.HashMap<>();
+        if (props != null) {
+            for (java.util.Map.Entry<Object,Object> entry : props.entrySet()) {
+                if (entry.getKey() == null) continue;
+                map.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Mark a producer as closed.
+     *
+     * @param producer the producer instance
+     * @return {@code true} if this is the first time we saw close() for this instance
+     */
+    public static boolean markProducerClosed(Object producer) {
+        if (producer == null || isDisabled()) {
+            return false;
+        }
+        try {
+            String producerId = "producer-" + System.identityHashCode(producer);
+            ProducerMetricsInfo info = producerMetricsMap.get(producerId);
+            if (info != null) {
+                if (info.isActive.getAndSet(false)) {
+                    logger.debug("Producer {} marked as closed; metrics collection will stop", producerId);
+                    try {
+                        ClientStatsReporter reporter = info.getReporter();
+                        if (reporter != null) {
+                            // Stop the reporter and deregister it from coordinators
+                            reporter.deactivate();
+                            ai.superstream.core.ClientStatsReporter.deregisterReporter(reporter);
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Error deactivating reporter for {}: {}", producerId, e.getMessage());
+                    }
+
+                    // Remove from lookup maps to free memory
+                    clientStatsReporters.remove(producerId);
+                    producerMetricsMap.remove(producerId);
+                    return true;
+                } else {
+                    return false; // already closed previously
+                }
+            }
+            // no info found
+            return false;
+        } catch (Exception e) {
+            logger.error("[ERR-200] Failed to mark producer as closed: {}", e.getMessage(), e);
+            return false;
         }
     }
 }
