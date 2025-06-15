@@ -119,17 +119,6 @@ public class KafkaConfig {
 ### Pekko/Akka Kafka Applications
 Pekko and Akka Kafka applications typically use immutable configuration maps internally, which prevents Superstream from applying optimizations. To enable Superstream optimizations with Pekko/Akka, you need to create the KafkaProducer manually with a mutable configuration.
 
-❌ **Native Pekko/Akka pattern (optimizations won't be applied)**:
-```java
-ProducerSettings<String, String> producerSettings = ProducerSettings
-    .create(system, new StringSerializer(), new StringSerializer())
-    .withBootstrapServers("localhost:9092");
-
-Source.single(ProducerMessage.single(record))
-    .via(Producer.flexiFlow(producerSettings))
-    .runWith(Sink.ignore, system);
-```
-
 ✅ **Superstream-optimized pattern**:
 ```java
 // Add these lines to create a mutable producer
@@ -149,9 +138,16 @@ Source.single(ProducerMessage.single(record))
     .runWith(Sink.ignore, system);
 ```
 
-This approach ensures that:
-- All Pekko/Akka Kafka features remain available
-- Superstream can optimize the producer configuration
+❌ **Native Pekko/Akka pattern (optimizations won't be applied)**:
+```java
+ProducerSettings<String, String> producerSettings = ProducerSettings
+    .create(system, new StringSerializer(), new StringSerializer())
+    .withBootstrapServers("localhost:9092");
+
+Source.single(ProducerMessage.single(record))
+    .via(Producer.flexiFlow(producerSettings))
+    .runWith(Sink.ignore, system);
+```
 
 ### Why This Matters
 The Superstream library needs to modify your producer's configuration to apply optimizations based on your cluster's characteristics. This includes adjusting settings like compression, batch size, and other performance parameters. When the configuration is immutable, these optimizations cannot be applied.
