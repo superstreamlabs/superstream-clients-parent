@@ -78,14 +78,16 @@ public class SuperstreamAgent {
                                 .on(ElementMatchers.named("close"))))
                 .installOn(instrumentation);
 
-        // Intercept KafkaConsumer constructor for metrics collection
+        // Intercept KafkaConsumer constructor and poll() method for metrics collection
         new AgentBuilder.Default()
                 .disableClassFormatChanges()
                 .type(ElementMatchers.nameEndsWith("KafkaConsumer"))
                 .transform((builder, typeDescription, classLoader, module,
                         protectionDomain) -> builder
                             .visit(Advice.to(KafkaConsumerInterceptor.class)
-                                .on(ElementMatchers.isConstructor())))
+                                .on(ElementMatchers.isConstructor()))
+                            .visit(Advice.to(KafkaConsumerInterceptor.class)
+                                .on(ElementMatchers.named("poll"))))
                 .installOn(instrumentation);
 
         logger.info("Superstream Agent successfully installed instrumentation");

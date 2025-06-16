@@ -9,8 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.Collections;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * Example application that uses the Kafka Clients API to consume messages.
@@ -36,140 +35,99 @@ public class KafkaConsumerExample {
 
     // === Configuration Constants ===
     private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
-
+    private static final String CONSUMER_GROUP_ID = "superstream-example-consumer-group";
     private static final String CLIENT_ID = "superstream-example-consumer";
-    private static final String GROUP_ID = "superstream-example-consumer-group";
-    private static final String AUTO_OFFSET_RESET = "earliest"; // Start from beginning of topic
-    private static final long POLL_TIMEOUT_MS = 1000; // 1 second poll timeout
-
     private static final String TOPIC_NAME = "example-topic";
 
     public static void main(String[] args) {
-        logger.info("Starting Kafka Consumer Example");
-        logger.info("This example will consume messages from topic: {}", TOPIC_NAME);
-        logger.info("Watch for the 'hello world - KafkaConsumer intercepted!' message from the Superstream agent");
+        System.out.println("=== Superstream KafkaConsumer Example ===");
+        System.out.println("This example demonstrates the Superstream agent intercepting KafkaConsumer operations");
+        System.out.println();
 
-        Properties props = createConsumerProperties();
-        
-        try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
-            // The Superstream Agent should have intercepted the consumer creation
-            // and logged "hello world - KafkaConsumer intercepted!" to the console
-            
-            logger.info("KafkaConsumer created successfully with client.id: {}", CLIENT_ID);
-            logger.info("Consumer group: {}", GROUP_ID);
-            
-            // Subscribe to the topic
-            consumer.subscribe(Collections.singletonList(TOPIC_NAME));
-            logger.info("Subscribed to topic: {}", TOPIC_NAME);
-            
-            int messageCount = 0;
-            long startTime = System.currentTimeMillis();
-            
-            logger.info("Starting message consumption loop...");
-            
-            while (true) {
-                try {
-                    ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(POLL_TIMEOUT_MS));
-                    
-                    if (records.isEmpty()) {
-                        logger.debug("No messages received in this poll cycle");
-                        continue;
-                    }
-                    
-                    logger.info("Received {} messages in this batch", records.count());
-                    
-                    for (ConsumerRecord<String, String> record : records) {
-                        messageCount++;
-                        
-                        logger.info("Message {}: Key={}, Value length={} bytes, Partition={}, Offset={}", 
-                                   messageCount, 
-                                   record.key(), 
-                                   record.value() != null ? record.value().length() : 0,
-                                   record.partition(),
-                                   record.offset());
-                        
-                        // Log first few characters of the message for verification
-                        if (record.value() != null && record.value().length() > 0) {
-                            String preview = record.value().length() > 100 
-                                ? record.value().substring(0, 100) + "..." 
-                                : record.value();
-                            logger.debug("Message preview: {}", preview);
-                        }
-                        
-                        // Simulate message processing time
-                        Thread.sleep(100);
-                    }
-                    
-                    // Commit offsets after processing the batch
-                    consumer.commitSync();
-                    logger.debug("Committed offsets for {} messages", records.count());
-                    
-                    // Log progress every 10 messages
-                    if (messageCount % 10 == 0) {
-                        long elapsedTime = System.currentTimeMillis() - startTime;
-                        double messagesPerSecond = (messageCount * 1000.0) / elapsedTime;
-                        logger.info("Progress: {} messages consumed in {} ms ({:.2f} msg/sec)", 
-                                   messageCount, elapsedTime, messagesPerSecond);
-                    }
-                    
-                } catch (Exception e) {
-                    logger.error("Error processing messages: {}", e.getMessage(), e);
-                    // Continue consuming despite errors
-                }
-            }
-            
-        } catch (Exception e) {
-            logger.error("Fatal error in consumer", e);
-        }
-    }
-
-    /**
-     * Create consumer properties with optimal settings for the example.
-     */
-    private static Properties createConsumerProperties() {
+        // Build consumer configuration
         Properties props = new Properties();
-        
-        // Basic Kafka configuration
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, DEFAULT_BOOTSTRAP_SERVERS);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, GROUP_ID);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, CONSUMER_GROUP_ID);
         props.put(ConsumerConfig.CLIENT_ID_CONFIG, CLIENT_ID);
-        
-        // Serialization
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        
-        // Consumer behavior
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, AUTO_OFFSET_RESET);
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false); // Manual commit for better control
-        
-        // Performance tuning
-        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1024); // 1KB minimum fetch
-        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500); // Wait up to 500ms for minimum bytes
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 100); // Process up to 100 records per poll
-        
-        // Session and heartbeat configuration
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 30000); // 30 seconds
-        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10000); // 10 seconds
-        
-        logger.info("Consumer configuration:");
-        props.stringPropertyNames().forEach(key -> {
-            if (!isSensitiveProperty(key)) {
-                logger.info("  {} = {}", key, props.getProperty(key));
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
+        props.put(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG, "1000");
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000");
+        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "3000");
+
+        System.out.println("Consumer configuration:");
+        System.out.println("  Bootstrap servers: " + DEFAULT_BOOTSTRAP_SERVERS);
+        System.out.println("  Group ID: " + CONSUMER_GROUP_ID);
+        System.out.println("  Client ID: " + CLIENT_ID);
+        System.out.println("  Topic: " + TOPIC_NAME);
+        System.out.println();
+
+        // Create KafkaConsumer - this should trigger the interceptor
+        System.out.println("Creating KafkaConsumer (should trigger Superstream interceptor)...");
+        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+        System.out.println("KafkaConsumer created successfully");
+        System.out.println();
+
+        try {
+            // Subscribe to the topic
+            System.out.println("Subscribing to topic: " + TOPIC_NAME);
+            consumer.subscribe(Collections.singletonList(TOPIC_NAME));
+            System.out.println("Subscribed successfully");
+            System.out.println();
+
+            System.out.println("Starting to poll for messages...");
+            System.out.println("Note: Each poll() call should trigger the message consumed interceptor");
+            System.out.println();
+
+            long startTime = System.currentTimeMillis();
+            int totalMessagesConsumed = 0;
+            int pollCount = 0;
+
+            while (true) {
+                pollCount++;
+                System.out.println("--- Poll #" + pollCount + " ---");
+                
+                // Poll for messages - this should trigger the onPollExit interceptor
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(5000));
+                
+                if (records.isEmpty()) {
+                    System.out.println("No messages received in this poll");
+                } else {
+                    System.out.println("Received " + records.count() + " messages in this poll");
+                    
+                    for (ConsumerRecord<String, String> record : records) {
+                        totalMessagesConsumed++;
+                        System.out.printf("Application processed message %d: topic=%s, partition=%d, offset=%d, key=%s%n",
+                                totalMessagesConsumed, record.topic(), record.partition(), record.offset(), record.key());
+                        
+                        // Log message value only in debug mode to avoid spam
+                        logger.debug("Message value: {}", record.value());
+                    }
+                }
+
+                System.out.println("Total messages consumed so far: " + totalMessagesConsumed);
+                
+                // Run for about 2 minutes then exit
+                if (System.currentTimeMillis() - startTime > 120000) {
+                    System.out.println("Demo completed after 2 minutes");
+                    break;
+                }
+                
+                System.out.println();
+                Thread.sleep(2000); // Wait 2 seconds between polls
             }
-        });
-        
-        return props;
-    }
-    
-    /**
-     * Check if a property contains sensitive information that shouldn't be logged.
-     */
-    private static boolean isSensitiveProperty(String propertyName) {
-        String lowerName = propertyName.toLowerCase();
-        return lowerName.contains("password") || 
-               lowerName.contains("secret") || 
-               lowerName.contains("key") ||
-               lowerName.contains("token") ||
-               lowerName.contains("credential");
+
+        } catch (Exception e) {
+            logger.error("Error in consumer", e);
+            System.err.println("Error: " + e.getMessage());
+        } finally {
+            System.out.println("Closing KafkaConsumer...");
+            consumer.close();
+            System.out.println("Consumer closed successfully");
+            System.out.println();
+            System.out.println("=== Demo Complete ===");
+        }
     }
 } 
