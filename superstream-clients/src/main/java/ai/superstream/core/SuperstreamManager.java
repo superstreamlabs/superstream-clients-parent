@@ -219,13 +219,25 @@ public class SuperstreamManager {
                     ""
             );
 
-            // Log optimization success with linger.ms status based on environment variable
+            // Log optimization success with appropriate message based on configuration and client ID
             boolean isLatencySensitive = configurationOptimizer.isLatencySensitive();
-            if (isLatencySensitive) {
-                logger.info("Successfully optimized producer configuration for {} (linger.ms left unchanged due to latency sensitivity)", clientId);
-            } else {
-                logger.info("Successfully optimized producer configuration for {}", clientId);
+            boolean isUsingDefaults = applicationTopics != null && !applicationTopics.isEmpty() && 
+                (metadataMessage.getTopicsConfiguration() == null || 
+                metadataMessage.getTopicsConfiguration().stream().noneMatch(tc -> applicationTopics.contains(tc.getTopicName())));
+            
+            String baseMessage = isUsingDefaults ? 
+                "Successfully optimized producer with default optimization parameters" :
+                "Successfully optimized producer configuration";
+                
+            if (clientId != null && !clientId.trim().isEmpty()) {
+                baseMessage += " for " + clientId;
             }
+            
+            if (isLatencySensitive) {
+                baseMessage += " (linger.ms left unchanged due to latency sensitivity)";
+            }
+            
+            logger.info(baseMessage);
             return true;
         } catch (Exception e) {
             logger.error("[ERR-030] Failed to optimize producer configuration: {}", e.getMessage(), e);
