@@ -34,7 +34,7 @@ Works with any Java library that depends on `kafka-clients`, including:
 
 ## Java Version Compatibility
 
-The Superstream Client library fully supports Java versions 11 through 21.
+The library fully supports Java versions 11 through 21.
 
 ## Important: Producer Configuration Requirements
 
