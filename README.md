@@ -32,6 +32,10 @@ Works with any Java library that depends on `kafka-clients`, including:
 - **Intelligent optimization**: Identifies the most impactful topics to optimize
 - **Graceful fallback**: Falls back to default settings if optimization fails
 
+## Java Version Compatibility
+
+The Superstream Client library fully supports Java versions 11 through 21.
+
 ## Important: Producer Configuration Requirements
 
 When initializing your Kafka producers, please ensure you pass the configuration as a mutable object. The Superstream library needs to modify the producer configuration to apply optimizations. The following initialization patterns are supported:
