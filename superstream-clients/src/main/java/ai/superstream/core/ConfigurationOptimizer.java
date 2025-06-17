@@ -52,21 +52,23 @@ public class ConfigurationOptimizer {
             } else {
                 logger.debug(
                         "No matching topic configurations found for the application topics. Applying default optimizations.");
+                logger.warn(
+                        "The topics you're publishing to haven't been analyzed yet. For optimal results, either wait for the next analysis cycle or trigger one manually via the SuperClient Console");
             }
 
             // Apply default optimizations when no matching topics found
             optimalConfiguration = new HashMap<>();
             optimalConfiguration.put("compression.type", "zstd");
-            optimalConfiguration.put("batch.size", 16384); // 16KB
+            optimalConfiguration.put("batch.size", 32768); // 32KB
 
             // Only add linger if not latency-sensitive
             if (!isLatencySensitive) {
                 optimalConfiguration.put("linger.ms", 5000); // 5 seconds default
                 logger.debug(
-                        "Default optimizations will be applied: compression.type=zstd, batch.size=16384, linger.ms=5000");
+                        "Default optimizations will be applied: compression.type=zstd, batch.size=32768, linger.ms=5000");
             } else {
                 logger.debug(
-                        "Default optimizations will be applied: compression.type=zstd, batch.size=16384 (linger.ms unchanged)");
+                        "Default optimizations will be applied: compression.type=zstd, batch.size=32768 (linger.ms unchanged)");
             }
             return optimalConfiguration;
         }
